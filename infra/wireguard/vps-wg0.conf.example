@@ -1,0 +1,16 @@
+# /etc/wireguard/wg0.conf on the VPS that runs the YourWiFi API.
+# Starlink uses CGNAT, so the router can't accept inbound connections. It dials out to this
+# VPS, and the API then reaches the router's REST API at 10.8.0.2 through the tunnel.
+#
+#   wg genkey | tee privatekey | wg pubkey > publickey
+#   sudo systemctl enable --now wg-quick@wg0
+
+[Interface]
+Address = 10.8.0.1/24
+ListenPort = 51820
+PrivateKey = <VPS_PRIVATE_KEY>
+
+[Peer]
+# YourWiFi-Router-1. Get its public key with: /interface wireguard print
+PublicKey = <ROUTER_PUBLIC_KEY>
+AllowedIPs = 10.8.0.2/32

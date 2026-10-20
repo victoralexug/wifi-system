@@ -1,0 +1,26 @@
+{
+  "name": "yourwifi",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,portal,admin -c blue,green,magenta \"npm run dev -w @yourwifi/api\" \"npm run dev -w @yourwifi/portal\" \"npm run dev -w @yourwifi/admin\"",
+    "build": "npm run build -w @yourwifi/portal && npm run build -w @yourwifi/admin && npm run build -w @yourwifi/api",
+    "start": "npm run start -w @yourwifi/api",
+    "test": "npm run test -w @yourwifi/api",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:generate": "npm run db:generate -w @yourwifi/api",
+    "db:migrate": "npm run db:migrate -w @yourwifi/api",
+    "db:seed": "npm run db:seed -w @yourwifi/api",
+    "admin:create": "npm run admin:create -w @yourwifi/api --"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6"
+  }
+}

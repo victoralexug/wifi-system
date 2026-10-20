@@ -1,0 +1,1 @@
+ALTER TABLE "access_sessions" ADD COLUMN "controller_bytes" bigint DEFAULT 0 NOT NULL;
