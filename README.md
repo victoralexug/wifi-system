@@ -1,6 +1,6 @@
 # YourWiFi
 
-Paid Wi-Fi hotspot system. Customers join the Wi-Fi, sign in with their phone number and a password, buy a time pass or a data bundle with Paystack, and get online automatically. Access ends when the time or the data runs out, and customers can check what's left on their account page.
+Paid Wi-Fi hotspot system. Customers join the Wi-Fi, sign in with their phone number and a password (and can reset a forgotten password by email), buy a time pass or a data bundle with Paystack, and get online automatically. Access ends when the time or the data runs out, and customers can check what's left on their account page.
 
 ```
  phone ──Wi-Fi──▶ MikroTik hotspot ──(not paid: redirect)──▶ Portal (React)
@@ -32,6 +32,7 @@ npm run dev                                          # API :4000, portal :5173, 
 ```
 
 - Portal: http://localhost:5173. Create an account, pick a plan, and use the simulated checkout to pass or fail the payment.
+- Password reset: emails aren't sent in dev (`MAIL_DRIVER=mock`). The reset link is printed in the API console.
 - Simulate data use on the mock router (watch My account update):
   `curl -X POST localhost:4000/api/dev/mock-usage/<ACCESS-CODE> -H 'content-type: application/json' -d '{"megabytes": 900}'`
 - Admin: http://localhost:5174/admin/

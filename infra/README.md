@@ -43,6 +43,8 @@ Any MikroTik router running **RouterOS v7.1 or later** works, because the API us
 - [ ] Paystack dashboard webhook URL set to `https://<host>/api/webhooks/paystack`
 - [ ] Postgres backups scheduled
 - [ ] Admin account created with a strong password (`npm run admin:create`)
+- [ ] `MAIL_DRIVER=smtp` with a real `SMTP_URL` and `MAIL_FROM`; SPF and DKIM set up for the sending domain
+- [ ] "Forgot your password?" email arrives (check the spam folder too) and its link opens the portal
 
 **Router**
 - [ ] `mikrotik/yourwifi-setup.rsc` reviewed by the technician and imported; hotspot pages uploaded

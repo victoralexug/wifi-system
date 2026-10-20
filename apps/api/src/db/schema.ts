@@ -43,11 +43,26 @@ export const customers = pgTable('customers', {
   // E.164, e.g. +2348012345678
   phone: text('phone').notNull().unique(),
   name: text('name'),
-  email: text('email'),
+  // Lowercased. Required at sign-up and used for password reset; null only on older accounts.
+  email: text('email').unique(),
   // Null for customers created before accounts existed; they set one by registering.
   passwordHash: text('password_hash'),
   ...timestamps,
 });
+
+export const passwordResetTokens = pgTable(
+  'password_reset_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customerId: uuid('customer_id').notNull().references(() => customers.id),
+    // SHA-256 of the token in the emailed link. The token itself is never stored.
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('password_reset_tokens_customer_idx').on(t.customerId)],
+);
 
 export const orders = pgTable(
   'orders',

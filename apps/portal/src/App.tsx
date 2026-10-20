@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './auth';
 import { BRAND, captureHotspotContext, signInUrl, SUPPORT_PHONE } from './lib';
 import { AccountPage } from './pages/AccountPage';
 import { CodePage } from './pages/CodePage';
+import { ForgotPasswordPage, ResetPasswordPage } from './pages/PasswordResetPages';
 import { MockPayPage } from './pages/MockPayPage';
 import { PlansPage } from './pages/PlansPage';
 import { SignInPage } from './pages/SignInPage';
@@ -36,6 +37,8 @@ function Shell() {
   if (path.startsWith('/status')) page = <StatusPage hotspot={hotspot} />;
   else if (path.startsWith('/account')) page = <AccountPage hotspot={hotspot} />;
   else if (path.startsWith('/signin')) page = <SignInPage key={location.search} />;
+  else if (path.startsWith('/forgot-password')) page = <ForgotPasswordPage />;
+  else if (path.startsWith('/reset-password')) page = <ResetPasswordPage />;
   else if (path.startsWith('/code')) page = <CodePage hotspot={hotspot} />;
   else if (path.startsWith('/mock-pay')) page = <MockPayPage />;
   else page = <PlansPage key={location.search} hotspot={hotspot} />;
@@ -62,7 +65,7 @@ function Shell() {
             My account
           </a>
         )}
-        {customer === null && !path.startsWith('/signin') && (
+        {customer === null && !/^\/(signin|forgot-password|reset-password)/.test(path) && (
           <a className="header-link" href={signInUrl('/account')}>
             Sign in
           </a>

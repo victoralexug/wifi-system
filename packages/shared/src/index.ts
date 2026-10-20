@@ -40,11 +40,17 @@ export interface RegisterRequest {
   phone: string;
   password: string;
   name?: string;
-  email?: string;
+  email: string;
 }
 
 export interface LoginRequest {
   phone: string;
+  password: string;
+}
+
+export interface ResetPasswordRequest {
+  /** From the emailed link. */
+  token: string;
   password: string;
 }
 

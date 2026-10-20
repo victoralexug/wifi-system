@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useAuth } from '../auth';
-import { api, ApiError, navigate, safeNext, store, SUPPORT_PHONE } from '../lib';
+import { api, ApiError, navigate, safeNext, store } from '../lib';
 
 type Mode = 'register' | 'login';
 
@@ -12,6 +12,7 @@ export function SignInPage() {
   const [phone, setPhone] = useState(store.get('yw:phone') ?? '');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,13 +24,13 @@ export function SignInPage() {
     try {
       const profile =
         mode === 'register'
-          ? await api.register({ phone, password, name: name.trim() || undefined })
+          ? await api.register({ phone, password, email, name: name.trim() || undefined })
           : await api.login({ phone, password });
       store.set('yw:phone', phone);
       setCustomer(profile);
       navigate(next);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
+      if (err instanceof ApiError && err.code === 'account_exists') {
         setMode('login');
         setError('You already have an account. Enter your password to sign in.');
       } else {
@@ -85,6 +86,22 @@ export function SignInPage() {
             disabled={busy}
           />
         </div>
+        {mode === 'register' && (
+          <div className="field">
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={busy}
+            />
+            <small className="muted">We only use it to send you a link if you forget your password.</small>
+          </div>
+        )}
         <div className="field">
           <label htmlFor="password">Password</label>
           <div className="password">
@@ -112,9 +129,9 @@ export function SignInPage() {
         </button>
 
         {mode === 'login' && (
-          <p className="muted small center">
-            Forgot your password? {SUPPORT_PHONE ? <>Call {SUPPORT_PHONE} and we'll reset it.</> : 'Contact support to reset it.'}
-          </p>
+          <a className="link center" href="/forgot-password">
+            Forgot your password?
+          </a>
         )}
       </form>
     </>

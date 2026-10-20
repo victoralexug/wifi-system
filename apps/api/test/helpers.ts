@@ -7,6 +7,7 @@ import { admins, plans } from '../src/db/schema';
 import type { Deps } from '../src/deps';
 import { createLogger } from '../src/lib/logger';
 import { hashPassword } from '../src/lib/password';
+import { MockMailService } from '../src/mail/mock';
 import { MockNetworkService } from '../src/network/mock';
 import { MockPaymentProvider } from '../src/payments/mock';
 import type { PaymentProvider } from '../src/payments/provider';
@@ -28,6 +29,7 @@ export async function createTestContext(opts: { payments?: PaymentProvider; env?
   };
 
   const network = new MockNetworkService();
+  const mail = new MockMailService();
   const payments = opts.payments ?? new MockPaymentProvider(config.PUBLIC_PORTAL_URL);
   const deps: Deps = {
     config,
@@ -35,6 +37,7 @@ export async function createTestContext(opts: { payments?: PaymentProvider; env?
     logger: createLogger('silent', false),
     payments,
     network,
+    mail,
     now: clock.now,
   };
   const built = createApp(deps);
@@ -52,13 +55,14 @@ export async function createTestContext(opts: { payments?: PaymentProvider; env?
     .insert(admins)
     .values({ email: 'admin@example.com', passwordHash: await hashPassword('correct-horse-battery') });
 
-  return { ...built, deps, network, payments, clock, plan: hourPlan!, bundlePlan: bundlePlan!, close: database.close };
+  return { ...built, deps, network, mail, payments, clock, plan: hourPlan!, bundlePlan: bundlePlan!, close: database.close };
 }
 
 /** Registers a customer and returns a supertest agent that carries their sign-in cookie. */
 export async function signUp(app: Parameters<typeof request.agent>[0], phone = '08031234567', password = 'customer-pass-1') {
   const agent = request.agent(app);
-  const res = await agent.post('/api/auth/register').send({ phone, password });
+  const email = `${phone.replace(/\D/g, '')}@example.com`;
+  const res = await agent.post('/api/auth/register').send({ phone, password, email });
   if (res.status !== 201) throw new Error(`register failed: ${res.status} ${JSON.stringify(res.body)}`);
   return agent;
 }

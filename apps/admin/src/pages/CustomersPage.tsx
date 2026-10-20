@@ -33,7 +33,8 @@ export function CustomersPage() {
       <div>
         <h1>Customers</h1>
         <p className="muted">
-          When a customer forgets their password, reset it here and read them the temporary password over the phone.
+          Customers reset a forgotten password themselves with the "Forgot your password?" email link. If they have no
+          email on file or can't reach it, reset it here and read them the temporary password over the phone.
           They can change it from their account page.
         </p>
       </div>

@@ -54,6 +54,7 @@ export function AccountPage({ hotspot }: { hotspot: HotspotContext }) {
       <section className="hero compact">
         <h1>{customer.name ? `Hi, ${customer.name.split(' ')[0]}` : 'My account'}</h1>
         <p>{customer.phone}</p>
+        {customer.email && <p>{customer.email}</p>}
       </section>
 
       {error && <div className="alert">{error}</div>}
@@ -105,12 +106,73 @@ export function AccountPage({ hotspot }: { hotspot: HotspotContext }) {
         </section>
       )}
 
+      <ChangeEmail current={customer.email} />
       <ChangePassword />
 
       <button className="btn block" onClick={() => void signOut().then(() => navigate('/'))}>
         Sign out
       </button>
     </div>
+  );
+}
+
+// Older accounts may have no email; they need one to reset a forgotten password themselves.
+function ChangeEmail({ current }: { current: string | null }) {
+  const { setCustomer } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      setCustomer(await api.changeEmail(email, password));
+      setStatus({ ok: true, message: 'Email saved.' });
+      setEmail('');
+      setPassword('');
+      setOpen(false);
+    } catch (err) {
+      setStatus({ ok: false, message: err instanceof ApiError ? err.message : 'Could not save your email.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <div className="center">
+        {!current && (
+          <div className="note">Add your email so you can reset your password yourself if you ever forget it.</div>
+        )}
+        {status?.ok && <p className="muted small">{status.message}</p>}
+        <button className="link" onClick={() => setOpen(true)}>
+          {current ? 'Change email' : 'Add email'}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <form className="card stack left" onSubmit={submit}>
+      <h2>{current ? 'Change email' : 'Add email'}</h2>
+      <div className="field">
+        <label htmlFor="new-email">Email</label>
+        <input id="new-email" type="email" inputMode="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+      </div>
+      <div className="field">
+        <label htmlFor="email-password">Current password</label>
+        <input id="email-password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+      </div>
+      {status && !status.ok && <div className="alert">{status.message}</div>}
+      <button className="btn primary block" disabled={busy}>
+        {busy ? 'Saving…' : 'Save email'}
+      </button>
+      <button type="button" className="btn block" onClick={() => setOpen(false)}>
+        Cancel
+      </button>
+    </form>
   );
 }
 

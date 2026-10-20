@@ -295,7 +295,7 @@ export function adminRoutes(deps: Deps, sessions: SessionService): Router {
     res.json(body);
   });
 
-  // There's no SMS or email reset, so a customer who forgets their password calls support.
+  // Fallback for customers who can't use the emailed reset link (no email on file, or no access to it).
   // The admin reads this one-time password to them; they can change it from their account page.
   r.post('/customers/:id/reset-password', async (req, res) => {
     const temporaryPassword = generateVoucherCode(10);

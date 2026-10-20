@@ -28,7 +28,7 @@ const envSchema = z.object({
   PAYMENT_DRIVER: z.enum(['mock', 'paystack']).default('mock'),
   PAYSTACK_SECRET_KEY: z.string().optional(),
   PAYSTACK_BASE_URL: z.url().default('https://api.paystack.co'),
-  // Paystack requires an email; customers who don't give one get <phone>@<this domain>.
+  // Paystack requires an email; older accounts without one get <phone>@<this domain>.
   PLACEHOLDER_EMAIL_DOMAIN: z.string().default('customers.yourwifi.ng'),
 
   NETWORK_DRIVER: z.enum(['mock', 'mikrotik']).default('mock'),
@@ -40,6 +40,12 @@ const envSchema = z.object({
   MIKROTIK_HOTSPOT_SERVER: z.string().default('all'),
 
   ADMIN_JWT_SECRET: z.string().min(32).optional(),
+
+  // mock = log emails instead of sending them (dev and tests). smtp = send through SMTP_URL.
+  MAIL_DRIVER: z.enum(['mock', 'smtp']).default('mock'),
+  // e.g. smtps://user:password@smtp.example.com:465
+  SMTP_URL: z.string().optional(),
+  MAIL_FROM: z.string().default('YourWiFi <no-reply@yourwifi.ng>'),
 
   JOB_INTERVAL_SECONDS: z.coerce.number().int().positive().default(30),
   HEALTH_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
@@ -64,6 +70,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     // Simulated payments or simulated network access must never reach real customers.
     if (c.PAYMENT_DRIVER === 'mock') problems.push('PAYMENT_DRIVER=mock is not allowed in production');
     if (c.NETWORK_DRIVER === 'mock') problems.push('NETWORK_DRIVER=mock is not allowed in production');
+    // Password reset links have to actually reach customers.
+    if (c.MAIL_DRIVER === 'mock') problems.push('MAIL_DRIVER=mock is not allowed in production');
     if (!c.DATABASE_URL) problems.push('DATABASE_URL is required in production');
     if (!c.ADMIN_JWT_SECRET) problems.push('ADMIN_JWT_SECRET is required in production');
     if (c.PAYSTACK_SECRET_KEY?.startsWith('sk_test_')) {
@@ -77,6 +85,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   }
   if (c.NETWORK_DRIVER === 'mikrotik' && !(c.MIKROTIK_URL && c.MIKROTIK_USER && c.MIKROTIK_PASSWORD)) {
     problems.push('MIKROTIK_URL, MIKROTIK_USER and MIKROTIK_PASSWORD are required when NETWORK_DRIVER=mikrotik');
+  }
+  if (c.MAIL_DRIVER === 'smtp' && !c.SMTP_URL) {
+    problems.push('SMTP_URL is required when MAIL_DRIVER=smtp');
   }
   if (problems.length) {
     throw new Error(`Invalid environment configuration:\n${problems.map((p) => `  ${p}`).join('\n')}`);

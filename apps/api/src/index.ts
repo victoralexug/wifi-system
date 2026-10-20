@@ -3,6 +3,7 @@ import { loadConfig } from './config';
 import { createDatabase } from './db/client';
 import { startJobs } from './jobs';
 import { createLogger } from './lib/logger';
+import { createMailService } from './mail';
 import { createNetworkService } from './network';
 import { createPaymentProvider } from './payments';
 
@@ -20,6 +21,7 @@ async function main() {
     logger,
     payments: createPaymentProvider(config),
     network: createNetworkService(config),
+    mail: createMailService(config, logger),
     now: () => new Date(),
   };
   const { app, sessions, orders } = createApp(deps);
@@ -27,7 +29,7 @@ async function main() {
 
   const server = app.listen(config.PORT, () => {
     logger.info(
-      { port: config.PORT, payments: deps.payments.name, network: deps.network.driver },
+      { port: config.PORT, payments: deps.payments.name, network: deps.network.driver, mail: deps.mail.driver },
       'YourWiFi API listening',
     );
     if (deps.payments.name === 'mock' || deps.network.driver === 'mock') {

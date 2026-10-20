@@ -7,6 +7,7 @@ import type {
   OrderStatusResponse,
   PublicPlan,
   RegisterRequest,
+  ResetPasswordRequest,
   SessionView,
 } from '@yourwifi/shared';
 
@@ -17,6 +18,8 @@ export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    /** The API's error code, e.g. 'account_exists' or 'email_taken'. */
+    public readonly code?: string,
   ) {
     super(message);
   }
@@ -38,7 +41,7 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
   const json = await res.json().catch(() => null);
   if (!res.ok) {
     const issue = json?.error?.issues?.[0]?.message as string | undefined;
-    throw new ApiError(res.status, issue ?? json?.error?.message ?? 'Something went wrong. Please try again.');
+    throw new ApiError(res.status, issue ?? json?.error?.message ?? 'Something went wrong. Please try again.', json?.error?.code);
   }
   return json as T;
 }
@@ -52,10 +55,14 @@ export const api = {
   register: (body: RegisterRequest) => call<CustomerProfile>('POST', '/auth/register', body),
   login: (body: LoginRequest) => call<CustomerProfile>('POST', '/auth/login', body),
   logout: () => call<void>('POST', '/auth/logout'),
+  forgotPassword: (email: string) => call<void>('POST', '/auth/forgot-password', { email }),
+  resetPassword: (body: ResetPasswordRequest) => call<CustomerProfile>('POST', '/auth/reset-password', body),
   me: () => call<CustomerProfile>('GET', '/me'),
   mySessions: () => call<AccountSession[]>('GET', '/me/sessions'),
   changePassword: (currentPassword: string, newPassword: string) =>
     call<void>('POST', '/me/password', { currentPassword, newPassword }),
+  changeEmail: (email: string, currentPassword: string) =>
+    call<CustomerProfile>('POST', '/me/email', { email, currentPassword }),
   mockPay: (reference: string, outcome: 'success' | 'failed') =>
     call<OrderStatusResponse>('POST', `/dev/mock-pay/${encodeURIComponent(reference)}`, { outcome }),
 };

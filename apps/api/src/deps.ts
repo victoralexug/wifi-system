@@ -1,6 +1,7 @@
 import type { Config } from './config';
 import type { Database } from './db/client';
 import type { Logger } from './lib/logger';
+import type { MailService } from './mail';
 import type { NetworkService } from './network';
 import type { PaymentProvider } from './payments';
 
@@ -10,5 +11,6 @@ export interface Deps {
   logger: Logger;
   payments: PaymentProvider;
   network: NetworkService;
+  mail: MailService;
   now: () => Date;
 }

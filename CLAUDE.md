@@ -4,7 +4,7 @@ This file guides Claude Code (claude.ai/code) when working in this repository.
 
 ## Project overview
 
-**YourWiFi** (working name) is a paid Wi-Fi hotspot for a Nigerian neighbourhood with a Starlink uplink. A customer joins the Wi-Fi and the MikroTik hotspot redirects them to our portal. They sign in or create an account (phone + password), then buy a **time pass** (unlimited data) or a **data bundle** (e.g. 60 GB within 30 days) with Paystack. The backend creates a hotspot user on the router and the portal logs the device in. Access ends when the time **or** the bundle's data runs out, whichever comes first. Customers check data and time left on their account page.
+**YourWiFi** (working name) is a paid Wi-Fi hotspot for a Nigerian neighbourhood with a Starlink uplink. A customer joins the Wi-Fi and the MikroTik hotspot redirects them to our portal. They sign in or create an account (phone + password, with an email for password resets), then buy a **time pass** (unlimited data) or a **data bundle** (e.g. 60 GB within 30 days) with Paystack. The backend creates a hotspot user on the router and the portal logs the device in. Access ends when the time **or** the bundle's data runs out, whichever comes first. Customers check data and time left on their account page.
 
 See `README.md` for the architecture diagram and local setup, and `infra/README.md` for hardware, the router and tunnel setup, and the go-live checklist.
 
@@ -16,9 +16,10 @@ See `README.md` for the architecture diagram and local setup, and `infra/README.
 | Backend | Node 22 + TypeScript, Express 5, Zod 4, Drizzle ORM, pino |
 | Database | PostgreSQL in production. **PGlite** (embedded Postgres) when `DATABASE_URL` is unset, for dev and tests |
 | Payments | **Paystack** (`PaystackProvider`), plus `MockPaymentProvider` for local dev |
+| Email | SMTP through nodemailer (`SmtpMailService`), plus `MockMailService`, which logs reset links to the API console |
 | Controller | **MikroTik RouterOS v7 REST API** (`MikrotikNetworkService`), plus `MockNetworkService`. Router model not yet purchased; any RouterOS ≥ 7.1 works |
 | Router link | WireGuard: the router dials out to the VPS because Starlink uses CGNAT. The API reaches the router at 10.8.0.2 |
-| Customer accounts | Phone number (normalized to +234…) + password (scrypt). No SMS or email. Forgotten passwords are reset by an admin (Customers page), who gives the customer a one-time password over the phone. Signed-JWT httpOnly cookie `yw_customer` (SameSite=Lax, 30 days) |
+| Customer accounts | Sign in with phone number (normalized to +234…) + password (scrypt). Email (lowercased, unique) is required at sign-up and used only for password reset: a single-use link valid for 30 minutes, token stored as a SHA-256 hash and carried in the URL fragment. Older accounts without an email add one from the account page. Admins can still issue a one-time password (Customers page) as a fallback. No SMS. Signed-JWT httpOnly cookie `yw_customer` (SameSite=Lax, 30 days) |
 | Router access | Each purchase gets an 8-char **voucher code**, used as hotspot username and password; `shared-users=1` |
 | Portal | React 19 + Vite. No router or UI library, kept small for captive-portal phones |
 | Admin | React 19 + Vite + React Router 7 + TanStack Query, served at `/admin/` |
@@ -41,10 +42,11 @@ Run one test file: `cd apps/api && npx vitest run test/flow.test.ts`. Migrations
 
 ## Code map (apps/api/src)
 
-- `config.ts`: Zod-validated env. **Production guards live here** (no mock drivers, Postgres required, no test keys).
+- `config.ts`: Zod-validated env. **Production guards live here** (no mock drivers, including mail, Postgres required, no test keys).
 - `orders/orders.service.ts`: `create`, **`confirmPayment`** (the only path from payment to access), `getStatus`, `reconcilePending`.
 - `sessions/sessions.service.ts`: `createForOrder`, `provision`, `retryPending`, **`syncUsage`** (data-bundle enforcement), `expireDue`, `revoke`, `retry`.
-- `customers/`: customer auth (`/api/auth/register|login|logout`) and account API (`/api/me`, `/api/me/sessions`, `/api/me/password`).
+- `customers/`: customer auth (`/api/auth/register|login|logout|forgot-password|reset-password`) and account API (`/api/me`, `/api/me/sessions`, `/api/me/password`, `/api/me/email`).
+- `mail/`: the `MailService` interface, SMTP, and mock.
 - `lib/auth.ts`: shared signed-cookie sessions. Admin and customer tokens use different audiences and cookies, so neither is accepted as the other.
 - `payments/`: the `PaymentProvider` interface, Paystack, and mock.
 - `network/`: the `NetworkService` interface, MikroTik REST, and mock. **All router access goes through this interface.**
@@ -65,7 +67,8 @@ Run one test file: `cd apps/api && npx vitest run test/flow.test.ts`. Migrations
 - **Data bundles are enforced by the backend** (`syncUsage`, every `JOB_INTERVAL_SECONDS`). RouterOS only adds traffic to a hotspot user's `bytes-in`/`bytes-out` at logout, so live usage = user totals + `/ip/hotspot/active` counters, and `limit-bytes-total` alone can be overrun during a long session. Usage accumulates by *deltas* against `controller_bytes`, so a counter reset never lowers it. Overrun is bounded by one poll interval of traffic.
 - `session_status`: `expired` means time ran out; `exhausted` means data ran out. Keep them distinct in the UI.
 - Data sizes are binary (1 GB = 1024 MB), matching RouterOS. Plans store `data_cap_mb`; the admin form takes GB.
-- Customer login rate limits count **failed attempts only**, keyed per phone or customer (never per IP; see the Starlink note).
+- Customer login rate limits count **failed attempts only**, keyed per phone or customer (never per IP; see the Starlink note). Reset-email requests count every request, keyed per email.
+- `/api/auth/forgot-password` always answers 204, whether or not the email has an account.
 - **Secrets stay in `apps/api/.env`.** Keep `.env.example` in sync when adding config.
 - **The portal posts voucher codes only to `VITE_HOTSPOT_LOGIN_HOSTS`** (see `safeLoginUrl`), never to an arbitrary `link-login-only` from the URL.
 - Timestamps are stored in UTC and shown in Africa/Lagos time (UTC+1, no DST). In SQL, convert `timestamptz` with `at time zone 'UTC'` before shifting. Never rely on the DB session time zone.
@@ -89,8 +92,8 @@ Based on `design guide/` (the "5 Rules of Clean Design" slides). Tokens live at 
 
 ## Status and open items
 
-- Built: customer accounts, time passes and data bundles, the purchase → access → usage/expiry flow, the account page with usage meters, the admin dashboard (including customer password reset), the MikroTik driver (tested against a fake RouterOS), the RouterOS setup template and the WireGuard config.
+- Built: customer accounts (with email password reset), time passes and data bundles, the purchase → access → usage/expiry flow, the account page with usage meters, the admin dashboard (including customer password reset), the MikroTik driver (tested against a fake RouterOS), the RouterOS setup template and the WireGuard config.
 - **Not yet verified on real hardware.** The MikroTik REST calls, `yourwifi-setup.rsc` and usage counting must be checked on an actual router (see the go-live checklist).
 - Plan prices in `scripts/seed.ts` are placeholders.
 - Open decisions: exact router and AP models, VPS host, and the brand name and domain (search for `YourWiFi` and `yourwifi.ng`).
-- Possible next steps: RADIUS for multi-site, email-based password reset (the owner rejected SMS), Paystack refunds from the admin dashboard, multiple routers per deployment (`network_devices` is ready for it, but the driver config is currently single-router via env).
+- Possible next steps: RADIUS for multi-site, signing out other devices after a password reset (customer cookies are stateless JWTs, so they stay valid until they expire), Paystack refunds from the admin dashboard, multiple routers per deployment (`network_devices` is ready for it, but the driver config is currently single-router via env).

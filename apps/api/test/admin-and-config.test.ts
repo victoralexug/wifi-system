@@ -13,12 +13,17 @@ describe('config guards', () => {
       MIKROTIK_URL: 'https://10.8.0.2',
       MIKROTIK_USER: 'api',
       MIKROTIK_PASSWORD: 'p',
+      MAIL_DRIVER: 'smtp',
+      SMTP_URL: 'smtps://u:p@smtp.example.com:465',
     };
     expect(() => loadConfig({ ...base, PAYMENT_DRIVER: 'mock', NETWORK_DRIVER: 'mikrotik' })).toThrow(/PAYMENT_DRIVER=mock/);
     expect(() => loadConfig({ ...base, PAYMENT_DRIVER: 'paystack', NETWORK_DRIVER: 'mock' })).toThrow(/NETWORK_DRIVER=mock/);
     expect(() =>
       loadConfig({ ...base, PAYMENT_DRIVER: 'paystack', NETWORK_DRIVER: 'mikrotik', PAYSTACK_SECRET_KEY: 'sk_test_x' }),
     ).toThrow(/test key/);
+    expect(() =>
+      loadConfig({ ...base, PAYMENT_DRIVER: 'paystack', NETWORK_DRIVER: 'mikrotik', MAIL_DRIVER: 'mock' }),
+    ).toThrow(/MAIL_DRIVER=mock/);
     expect(loadConfig({ ...base, PAYMENT_DRIVER: 'paystack', NETWORK_DRIVER: 'mikrotik' }).isProd).toBe(true);
   });
 });
