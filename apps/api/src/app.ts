@@ -11,21 +11,22 @@ import { customerRoutes } from './customers/customer.routes';
 import type { Deps } from './deps';
 import { errorHandler, notFoundHandler } from './lib/errors';
 import { OrderService } from './orders/orders.service';
+import { VoucherService } from './vouchers/vouchers.service';
 import { devRoutes } from './routes/dev.routes';
 import { publicRoutes } from './routes/public.routes';
+import { routerRoutes } from './routes/router.routes';
 import { webhookRoutes } from './routes/webhook.routes';
-import { SessionService } from './sessions/sessions.service';
 
 export interface App {
   app: Express;
-  sessions: SessionService;
   orders: OrderService;
+  vouchers: VoucherService;
 }
 
 export function createApp(deps: Deps): App {
   const { config, logger } = deps;
-  const sessions = new SessionService(deps);
-  const orders = new OrderService(deps, sessions);
+  const vouchers = new VoucherService(deps);
+  const orders = new OrderService(deps, vouchers);
   const app = express();
 
   app.disable('x-powered-by');
@@ -38,8 +39,6 @@ export function createApp(deps: Deps): App {
           // Paystack checkout is a full-page redirect, so no third-party scripts are needed.
           'default-src': ["'self'"],
           'img-src': ["'self'", 'data:'],
-          // The portal's "connect" step posts a form to the router's hotspot login page.
-          'form-action': ["'self'", 'http:', 'https:'],
         },
       },
     }),
@@ -49,19 +48,22 @@ export function createApp(deps: Deps): App {
   // Raw body for signature checks: must come before express.json().
   app.use('/api/webhooks', webhookRoutes(deps, orders));
 
+  // Voucher uploads can hold thousands of codes; everything else stays small.
+  app.use('/api/admin/vouchers', express.json({ limit: '1mb' }));
   app.use(express.json({ limit: '32kb' }));
   app.use(cookieParser());
   const customers = customerAuth(config.ADMIN_JWT_SECRET, config.isProd);
   app.use('/api', customerRoutes(deps, customers));
-  app.use('/api', publicRoutes(deps, orders, customers.require));
-  app.use('/api/admin', adminRoutes(deps, sessions));
-  if (deps.payments.name === 'mock') app.use('/api/dev', devRoutes(deps, orders, sessions));
+  app.use('/api', publicRoutes(deps, orders, vouchers, customers.require));
+  app.use('/api/admin', adminRoutes(deps, vouchers));
+  if (config.ROUTER_TOKEN) app.use('/api/router', routerRoutes(deps, vouchers));
+  if (deps.payments.name === 'mock') app.use('/api/dev', devRoutes(deps, orders));
   app.use('/api', notFoundHandler);
 
   if (config.SERVE_STATIC) mountStatic(app);
 
   app.use(errorHandler(logger));
-  return { app, sessions, orders };
+  return { app, orders, vouchers };
 }
 
 /** Serves the built frontends from one origin: portal at /, admin at /admin/. */

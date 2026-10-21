@@ -1,7 +1,8 @@
 import { createHmac } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { accessSessions } from '../src/db/schema';
+import { orders } from '../src/db/schema';
 import { PaystackProvider } from '../src/payments/paystack';
 import { createTestContext, signUp } from './helpers';
 
@@ -48,7 +49,7 @@ describe('Paystack webhook endpoint', () => {
   let ctx: Awaited<ReturnType<typeof createTestContext>>;
   afterEach(() => ctx.close());
 
-  it('rejects bad signatures and grants access exactly once for repeated valid events', async () => {
+  it('rejects bad signatures and confirms the payment once for repeated valid events', async () => {
     const fake = fakePaystack();
     ctx = await createTestContext({
       payments: new PaystackProvider(SECRET, 'https://api.paystack.co', fake.fetchImpl as typeof fetch),
@@ -57,6 +58,8 @@ describe('Paystack webhook endpoint', () => {
     const customer = await signUp(ctx.app, '+234 803 123 4567');
     const order = await customer.post('/api/orders').send({ planId: ctx.plan.id }).expect(201);
     const reference = order.body.reference as string;
+    const statusOf = async (ref: string) =>
+      (await ctx.deps.db.select().from(orders).where(eq(orders.reference, ref)))[0]!.status;
     expect(order.body.authorizationUrl).toMatch(/^https:\/\/checkout\.paystack\.com\//);
 
     const body = JSON.stringify({ event: 'charge.success', data: { reference } });
@@ -68,14 +71,14 @@ describe('Paystack webhook endpoint', () => {
       .send(body)
       .expect(401);
 
-    // Signed webhook, but Paystack's verify still says "ongoing": no access yet.
+    // Signed webhook, but Paystack's verify still says "ongoing": not paid yet.
     await request(ctx.app)
       .post('/api/webhooks/paystack')
       .set('content-type', 'application/json')
       .set('x-paystack-signature', sign(body))
       .send(body)
       .expect(200);
-    expect(await ctx.deps.db.select().from(accessSessions)).toHaveLength(0);
+    expect(await statusOf(reference)).toBe('pending');
 
     fake.txns.get(reference)!.status = 'success';
     for (let i = 0; i < 3; i++) {
@@ -86,10 +89,6 @@ describe('Paystack webhook endpoint', () => {
         .send(body)
         .expect(200);
     }
-    // Provisioning runs in the background after the webhook; let it finish.
-    await ctx.sessions.retryPending();
-    const sessions = await ctx.deps.db.select().from(accessSessions);
-    expect(sessions).toHaveLength(1);
-    expect(sessions[0]!.status).toBe('active');
+    expect(await statusOf(reference)).toBe('success');
   });
 });

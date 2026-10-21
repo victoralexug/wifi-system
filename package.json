@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "concurrently -n api,portal,admin -c blue,green,magenta \"npm run dev -w @yourwifi/api\" \"npm run dev -w @yourwifi/portal\" \"npm run dev -w @yourwifi/admin\"",
     "build": "npm run build -w @yourwifi/portal && npm run build -w @yourwifi/admin && npm run build -w @yourwifi/api",
+    "build:web": "npm run build -w @yourwifi/portal && npm run build -w @yourwifi/admin && node -e \"const fs=require('fs');fs.rmSync('apps/portal/dist/admin',{recursive:true,force:true});fs.cpSync('apps/admin/dist','apps/portal/dist/admin',{recursive:true})\"",
     "start": "npm run start -w @yourwifi/api",
     "test": "npm run test -w @yourwifi/api",
     "typecheck": "npm run typecheck --workspaces --if-present",

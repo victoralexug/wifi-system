@@ -1,5 +1,5 @@
 import type {
-  AccountSession,
+  AccountOrder,
   CreateOrderRequest,
   CreateOrderResponse,
   CustomerProfile,
@@ -8,7 +8,6 @@ import type {
   PublicPlan,
   RegisterRequest,
   ResetPasswordRequest,
-  SessionView,
 } from '@yourwifi/shared';
 
 export const BRAND = import.meta.env.VITE_BRAND_NAME || 'YourWiFi';
@@ -35,7 +34,7 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch {
-    throw new ApiError(0, 'Network problem. Check that you are still connected to the Wi-Fi.');
+    throw new ApiError(0, 'Network problem. Check your connection and try again.');
   }
   if (res.status === 204) return undefined as T;
   const json = await res.json().catch(() => null);
@@ -51,14 +50,13 @@ export const api = {
   createOrder: (body: CreateOrderRequest) => call<CreateOrderResponse>('POST', '/orders', body),
   order: (reference: string) => call<OrderStatusResponse>('GET', `/orders/${encodeURIComponent(reference)}`),
   verify: (reference: string) => call<OrderStatusResponse>('POST', `/orders/${encodeURIComponent(reference)}/verify`),
-  lookup: (code: string) => call<SessionView>('POST', '/sessions/lookup', { code }),
   register: (body: RegisterRequest) => call<CustomerProfile>('POST', '/auth/register', body),
   login: (body: LoginRequest) => call<CustomerProfile>('POST', '/auth/login', body),
   logout: () => call<void>('POST', '/auth/logout'),
   forgotPassword: (email: string) => call<void>('POST', '/auth/forgot-password', { email }),
   resetPassword: (body: ResetPasswordRequest) => call<CustomerProfile>('POST', '/auth/reset-password', body),
   me: () => call<CustomerProfile>('GET', '/me'),
-  mySessions: () => call<AccountSession[]>('GET', '/me/sessions'),
+  myOrders: () => call<AccountOrder[]>('GET', '/me/orders'),
   changePassword: (currentPassword: string, newPassword: string) =>
     call<void>('POST', '/me/password', { currentPassword, newPassword }),
   changeEmail: (email: string, currentPassword: string) =>
@@ -85,60 +83,6 @@ export const store = {
   },
 };
 
-/**
- * Details the MikroTik hotspot passes in the redirect to the portal (see infra/mikrotik/hotspot/login.html).
- * They are captured on first load and kept for the tab's lifetime, so they survive the Paystack round trip.
- */
-export interface HotspotContext {
-  mac?: string;
-  ip?: string;
-  linkLoginOnly?: string;
-  linkOrig?: string;
-  error?: string;
-}
-
-const HOTSPOT_KEY = 'yw:hotspot';
-
-export function captureHotspotContext(): HotspotContext {
-  const q = new URLSearchParams(location.search);
-  const fromUrl: HotspotContext = {
-    mac: q.get('mac') || undefined,
-    ip: q.get('ip') || undefined,
-    linkLoginOnly: q.get('link-login-only') || undefined,
-    linkOrig: q.get('link-orig') || undefined,
-    error: q.get('error') || undefined,
-  };
-  // localStorage rather than sessionStorage: some mini-browsers open Paystack's return redirect in a new tab.
-  if (fromUrl.linkLoginOnly) {
-    store.set(HOTSPOT_KEY, JSON.stringify(fromUrl));
-    return fromUrl;
-  }
-  let saved: HotspotContext = {};
-  try {
-    saved = JSON.parse(store.get(HOTSPOT_KEY) ?? '{}');
-  } catch {
-    // ignore
-  }
-  return fromUrl.error ? { ...saved, error: fromUrl.error } : saved;
-}
-
-const allowedHosts = (import.meta.env.VITE_HOTSPOT_LOGIN_HOSTS || '10.5.50.1,login.yourwifi')
-  .split(',')
-  .map((h: string) => h.trim().toLowerCase())
-  .filter(Boolean);
-
-/** Voucher credentials are only ever posted to the router itself, never to an arbitrary URL from the query string. */
-export function safeLoginUrl(ctx: HotspotContext): string | null {
-  if (!ctx.linkLoginOnly) return null;
-  try {
-    const u = new URL(ctx.linkLoginOnly);
-    if (!['http:', 'https:'].includes(u.protocol)) return null;
-    return allowedHosts.includes(u.hostname.toLowerCase()) ? u.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
 const lagos = new Intl.DateTimeFormat('en-NG', {
   timeZone: 'Africa/Lagos',
   weekday: 'short',
@@ -150,13 +94,6 @@ const lagos = new Intl.DateTimeFormat('en-NG', {
 
 export const formatLagosTime = (iso: string) => lagos.format(new Date(iso));
 
-export function formatRemaining(iso: string, now = Date.now()): string {
-  const mins = Math.max(0, Math.round((new Date(iso).getTime() - now) / 60_000));
-  if (mins >= 2 * 1440) return `${Math.floor(mins / 1440)} days left`;
-  if (mins >= 120) return `${Math.floor(mins / 60)} hours left`;
-  if (mins >= 60) return `1 hour ${mins - 60} min left`;
-  return `${mins} min left`;
-}
 
 /** Sends the customer to sign in, then back to `next` afterwards. */
 export function signInUrl(next: string = location.pathname + location.search) {

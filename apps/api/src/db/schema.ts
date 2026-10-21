@@ -1,5 +1,4 @@
 import {
-  bigint,
   boolean,
   index,
   integer,
@@ -20,9 +19,6 @@ const timestamps = {
 };
 
 export const orderStatus = pgEnum('order_status', ['pending', 'success', 'failed', 'flagged']);
-// expired = time ran out; exhausted = data bundle used up.
-export const sessionStatus = pgEnum('session_status', ['pending', 'active', 'expired', 'exhausted', 'revoked']);
-export const deviceStatus = pgEnum('device_status', ['unknown', 'online', 'offline']);
 
 export const plans = pgTable('plans', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -30,11 +26,12 @@ export const plans = pgTable('plans', {
   description: text('description').notNull().default(''),
   priceKobo: integer('price_kobo').notNull(),
   durationMinutes: integer('duration_minutes').notNull(),
-  // RouterOS rate-limit syntax, e.g. "5M/5M" (rx/tx). Null means unlimited.
-  rateLimit: text('rate_limit'),
+  // Null means unlimited data (a time pass).
   dataCapMb: integer('data_cap_mb'),
   active: boolean('active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
+  // The monthly voucher job tops unused codes up to this many. 0 = no generated codes for this plan.
+  voucherStockTarget: integer('voucher_stock_target').notNull().default(0),
   ...timestamps,
 });
 
@@ -76,8 +73,6 @@ export const orders = pgTable(
     currency: text('currency').notNull().default('NGN'),
     status: orderStatus('status').notNull().default('pending'),
     email: text('email').notNull(),
-    deviceMac: text('device_mac'),
-    deviceIp: text('device_ip'),
     failureReason: text('failure_reason'),
     providerPayload: jsonb('provider_payload'),
     paidAt: timestamp('paid_at', { withTimezone: true }),
@@ -86,48 +81,41 @@ export const orders = pgTable(
   (t) => [index('orders_status_idx').on(t.status), index('orders_created_at_idx').on(t.createdAt)],
 );
 
-export const accessSessions = pgTable(
-  'access_sessions',
+/**
+ * Codes the system generated together, to be loaded on the router. Until the batch is marked
+ * ready (by the router collecting it, or an admin), its codes aren't sold.
+ */
+export const voucherBatches = pgTable('voucher_batches', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // "YYYY-MM" for the monthly job, so each month gets at most one scheduled batch. Null for manual ones.
+  period: text('period').unique(),
+  codeCount: integer('code_count').notNull(),
+  readyAt: timestamp('ready_at', { withTimezone: true }),
+  // 'router' (collected by the router's script) or the admin's email.
+  readyBy: text('ready_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Voucher codes for each plan, uploaded by an admin or generated in a batch. When an order for that plan is paid, it is given
+ * the next unused code, which the customer then sees.
+ */
+export const vouchers = pgTable(
+  'vouchers',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    // Unique: a paid order can never produce two sessions, even if webhooks repeat.
-    orderId: uuid('order_id').notNull().unique().references(() => orders.id),
-    customerId: uuid('customer_id').notNull().references(() => customers.id),
     planId: uuid('plan_id').notNull().references(() => plans.id),
-    // Doubles as the hotspot username and password on the controller.
-    voucherCode: text('voucher_code').notNull().unique(),
-    status: sessionStatus('status').notNull().default('pending'),
-    // Snapshot of the plan at purchase time, so later plan edits don't change paid sessions.
-    planName: text('plan_name').notNull(),
-    durationMinutes: integer('duration_minutes').notNull(),
-    rateLimit: text('rate_limit'),
-    dataCapMb: integer('data_cap_mb'),
-    startsAt: timestamp('starts_at', { withTimezone: true }),
-    expiresAt: timestamp('expires_at', { withTimezone: true }),
-    controllerRef: text('controller_ref'),
-    // Total bytes up + down, as last read from the controller.
-    bytesUsed: bigint('bytes_used', { mode: 'number' }).notNull().default(0),
-    usageUpdatedAt: timestamp('usage_updated_at', { withTimezone: true }),
-    // Last raw counter read from the controller. Usage grows by the difference between reads,
-    // so a counter reset (router reboot, user re-created) never makes usage go backwards.
-    controllerBytes: bigint('controller_bytes', { mode: 'number' }).notNull().default(0),
-    provisionAttempts: integer('provision_attempts').notNull().default(0),
-    lastError: text('last_error'),
-    ...timestamps,
+    code: text('code').notNull().unique(),
+    batchId: uuid('batch_id').references(() => voucherBatches.id),
+    // When the code became usable on the router, and so sellable. Uploaded codes are ready at once.
+    readyAt: timestamp('ready_at', { withTimezone: true }),
+    // Set once, when the voucher is given to a paid order. Unique: an order gets exactly one voucher.
+    orderId: uuid('order_id').unique().references(() => orders.id),
+    assignedAt: timestamp('assigned_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('access_sessions_status_expires_idx').on(t.status, t.expiresAt)],
+  (t) => [index('vouchers_plan_unused_idx').on(t.planId, t.orderId)],
 );
-
-export const networkDevices = pgTable('network_devices', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: text('name').notNull().unique(),
-  driver: text('driver').notNull(),
-  status: deviceStatus('status').notNull().default('unknown'),
-  identity: text('identity'),
-  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
-  lastError: text('last_error'),
-  ...timestamps,
-});
 
 export const admins = pgTable('admins', {
   id: uuid('id').primaryKey().defaultRandom(),

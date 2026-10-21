@@ -7,29 +7,36 @@ import { Panel, StatusBadge } from '../components/ui';
 
 export function OverviewPage() {
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats, refetchInterval: 30_000 });
-  const network = useQuery({ queryKey: ['network'], queryFn: api.network, refetchInterval: 30_000 });
 
   if (stats.isPending) return <p className="muted">Loading…</p>;
   if (stats.error) return <p className="error">{stats.error.message}</p>;
   const s = stats.data;
-  const device = network.data?.devices[0];
+  const soldOut = s.lowVoucherStock.filter((p) => p.available === 0);
+  const low = s.lowVoucherStock.filter((p) => p.available > 0);
 
   return (
     <div className="stack">
       <h1>Overview</h1>
 
-      {(s.pendingProvisioning > 0 || s.orders.flagged > 0 || device?.status === 'offline') && (
+      {(s.orders.flagged > 0 || s.ordersWaitingForVoucher > 0 || s.lowVoucherStock.length > 0) && (
         <div className="attention">
-          {device?.status === 'offline' && (
+          {s.ordersWaitingForVoucher > 0 && (
             <p>
-              <StatusBadge status="offline" /> Router <strong>{device.name}</strong> is unreachable: {device.lastError}.{' '}
-              <Link to="/network">Details</Link>
+              <StatusBadge status="waiting" /> {s.ordersWaitingForVoucher} paid order{s.ordersWaitingForVoucher === 1 ? ' is' : 's are'}{' '}
+              waiting for a voucher code because the plan ran out. Add codes and they're given out straight away.{' '}
+              <Link to="/vouchers">Add codes</Link>
             </p>
           )}
-          {s.pendingProvisioning > 0 && (
+          {soldOut.length > 0 && (
             <p>
-              <StatusBadge status="pending" /> {s.pendingProvisioning} paid session{s.pendingProvisioning === 1 ? ' is' : 's are'} waiting
-              for the router. <Link to="/sessions?status=pending">Review</Link>
+              <StatusBadge status="sold_out" /> No voucher codes left, so customers can't buy:{' '}
+              <strong>{soldOut.map((p) => p.planName).join(', ')}</strong>. <Link to="/vouchers">Add codes</Link>
+            </p>
+          )}
+          {low.length > 0 && (
+            <p>
+              <StatusBadge status="low" /> Running low on voucher codes:{' '}
+              <strong>{low.map((p) => `${p.planName} (${p.available} left)`).join(', ')}</strong>. <Link to="/vouchers">Add codes</Link>
             </p>
           )}
           {s.orders.flagged > 0 && (
@@ -45,7 +52,6 @@ export function OverviewPage() {
         <Tile label="Revenue today" value={formatNaira(s.revenueKobo.today)} />
         <Tile label="Last 7 days" value={formatNaira(s.revenueKobo.last7Days)} />
         <Tile label="Last 30 days" value={formatNaira(s.revenueKobo.last30Days)} />
-        <Tile label="Online now" value={String(s.activeSessions)} hint="active sessions" />
       </div>
 
       <Panel title="Daily revenue, last 14 days">

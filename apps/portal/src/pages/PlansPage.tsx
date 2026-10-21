@@ -1,11 +1,11 @@
 import { formatDataMb, formatDuration, formatNaira, type PublicPlan } from '@yourwifi/shared';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../auth';
-import { api, ApiError, navigate, signInUrl, store, type HotspotContext } from '../lib';
+import { api, ApiError, navigate, signInUrl, store } from '../lib';
 
 type Group = 'bundles' | 'passes';
 
-export function PlansPage({ hotspot }: { hotspot: HotspotContext }) {
+export function PlansPage() {
   const { customer } = useAuth();
   const params = new URLSearchParams(location.search);
   const [plans, setPlans] = useState<PublicPlan[] | null>(null);
@@ -21,11 +21,11 @@ export function PlansPage({ hotspot }: { hotspot: HotspotContext }) {
       .plans()
       .then((p) => {
         setPlans(p);
-        const chosen = p.find((x) => x.id === planId);
+        const chosen = p.find((x) => x.id === planId && !x.soldOut);
         const hasBundles = p.some((x) => x.dataCapMb !== null);
         const g: Group = chosen ? (chosen.dataCapMb !== null ? 'bundles' : 'passes') : hasBundles ? 'bundles' : 'passes';
         setGroup(g);
-        if (!chosen) setPlanId(p.find((x) => (g === 'bundles') === (x.dataCapMb !== null))?.id ?? null);
+        if (!chosen) setPlanId(p.find((x) => (g === 'bundles') === (x.dataCapMb !== null) && !x.soldOut)?.id ?? null);
       })
       .catch((e: Error) => setLoadError(e.message));
   };
@@ -34,12 +34,12 @@ export function PlansPage({ hotspot }: { hotspot: HotspotContext }) {
   const bundles = plans?.filter((p) => p.dataCapMb !== null) ?? [];
   const passes = plans?.filter((p) => p.dataCapMb === null) ?? [];
   const shown = group === 'bundles' ? bundles : passes;
-  const selected = plans?.find((p) => p.id === planId);
+  const selected = plans?.find((p) => p.id === planId && !p.soldOut);
 
   const switchGroup = (g: Group) => {
     setGroup(g);
     const list = g === 'bundles' ? bundles : passes;
-    if (!list.some((p) => p.id === planId)) setPlanId(list[0]?.id ?? null);
+    if (!list.some((p) => p.id === planId)) setPlanId(list.find((p) => !p.soldOut)?.id ?? null);
   };
 
   const submit = async (e: FormEvent) => {
@@ -53,11 +53,7 @@ export function PlansPage({ hotspot }: { hotspot: HotspotContext }) {
     setSubmitting(true);
     setError(null);
     try {
-      const { authorizationUrl, reference } = await api.createOrder({
-        planId: selected.id,
-        deviceMac: hotspot.mac,
-        deviceIp: hotspot.ip,
-      });
+      const { authorizationUrl, reference } = await api.createOrder({ planId: selected.id });
       store.set('yw:reference', reference);
       location.assign(authorizationUrl);
     } catch (err) {
@@ -65,6 +61,8 @@ export function PlansPage({ hotspot }: { hotspot: HotspotContext }) {
         navigate(signInUrl(`/?plan=${selected.id}`));
         return;
       }
+      // Sold out while the page was open: show it as sold out.
+      if (err instanceof ApiError && err.code === 'sold_out') load();
       setError(err instanceof ApiError ? err.message : 'Could not start payment.');
       setSubmitting(false);
     }
@@ -77,12 +75,10 @@ export function PlansPage({ hotspot }: { hotspot: HotspotContext }) {
         <p>Choose a data bundle or a time pass, then pay with card, transfer or USSD.</p>
       </section>
 
-      {hotspot.error && <div className="alert">{hotspot.error}</div>}
-
       {customer && (
         <a className="resume" href="/account">
           <span>Signed in as {customer.name ?? customer.phone}</span>
-          <strong>Data &amp; time left →</strong>
+          <strong>My purchases →</strong>
         </a>
       )}
 
@@ -111,16 +107,22 @@ export function PlansPage({ hotspot }: { hotspot: HotspotContext }) {
           {!plans && !loadError && <div className="skeleton" aria-label="Loading plans" />}
           {plans?.length === 0 && <p className="muted">No plans are available right now.</p>}
           {shown.map((p) => (
-            <label key={p.id} className={`plan ${p.id === planId ? 'selected' : ''}`}>
-              <input type="radio" name="plan" value={p.id} checked={p.id === planId} onChange={() => setPlanId(p.id)} />
+            <label key={p.id} className={`plan ${p.id === planId ? 'selected' : ''} ${p.soldOut ? 'sold-out' : ''}`}>
+              <input
+                type="radio"
+                name="plan"
+                value={p.id}
+                checked={p.id === planId}
+                disabled={p.soldOut}
+                onChange={() => setPlanId(p.id)}
+              />
               <span className="plan-main">
                 <span className="plan-name">{p.dataCapMb !== null ? formatDataMb(p.dataCapMb) : formatDuration(p.durationMinutes)}</span>
                 <span className="plan-desc">
                   {p.dataCapMb !== null ? `Valid ${formatDuration(p.durationMinutes)}` : 'Unlimited data'}
-                  {p.rateLimit && ` · up to ${p.rateLimit.split('/')[0]}bps`}
                 </span>
               </span>
-              <span className="plan-price">{formatNaira(p.priceKobo)}</span>
+              <span className="plan-price">{p.soldOut ? <span className="badge">Sold out</span> : formatNaira(p.priceKobo)}</span>
             </label>
           ))}
         </fieldset>
@@ -141,7 +143,7 @@ export function PlansPage({ hotspot }: { hotspot: HotspotContext }) {
         </div>
         {customer === null && (
           <a className="btn block" href={signInUrl('/account')}>
-            Sign in to check data left
+            Sign in
           </a>
         )}
       </form>

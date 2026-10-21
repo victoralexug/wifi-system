@@ -1,65 +1,59 @@
-# Infrastructure and go-live
+# Router, hosting and go-live
 
-## Hardware (recommended starting point)
+## Getting generated codes onto the router
 
-Any MikroTik router running **RouterOS v7.1 or later** works, because the API uses the v7 REST API.
+Set a **stock target** on each plan (Plans page). On `VOUCHER_GENERATION_DAY` (default: the 1st) the API generates codes to top each plan up to its target. The batch shows on the Vouchers page as **Waiting for router**, and its codes aren't sold until they're on the router. Load it one of two ways:
 
-| Role | Suggested | Notes |
+- **Automatically (MikroTik):** set `ROUTER_TOKEN` (32+ random characters) on the API. In `mikrotik/yourwifi-voucher-sync.rsc` replace `API_HOST` (the Render host) and `ROUTER_TOKEN`, upload it to the router and run `/import yourwifi-voucher-sync.rsc`. Every 6 hours the router downloads any waiting batches, imports them as hotspot users and confirms, and the codes go on sale. It only makes outgoing requests, so it works behind Starlink. **Not yet tested on a real router**: try it on a virtual MikroTik (CHR) first.
+- **By hand (any controller):** on the Vouchers page, download the batch as a **MikroTik file** (import with `/import file-name=…`) or **CSV**, load it on your controller, then click **Mark as loaded**.
+
+Each code becomes a hotspot user whose name and password are the code, with the plan's `limit-uptime` and `limit-bytes-total`, in a profile per plan (`yw-<plan id>`, one device at a time). Note that `limit-uptime` counts time connected, not calendar days. If a 30-day plan should end 30 days after first login whatever the usage, set that up on the router (for example with a login script) before going live.
+
+The hotspot itself (server, login page, walled garden for the portal and Paystack) is set up on the router separately.
+
+## Hosting without a VPS
+
+Three free services:
+
+| Part | Where | Config |
 | --- | --- | --- |
-| Router / hotspot controller | MikroTik hEX (RB750Gr3) or hEX S, or an RB5009 for 100+ users | Runs the hotspot, DHCP, NAT and WireGuard |
-| Access points | MikroTik cAP ax / wAP ax (outdoor) | Bridge them to the router's LAN ports. They must not run their own DHCP/NAT |
-| Uplink | Starlink in **Bypass mode** (or the Starlink Ethernet adapter) | Starlink uses CGNAT, which is why the router dials out over WireGuard |
+| Portal (`/`) and admin (`/admin/`) | **Netlify**, at `https://wifisystem.netlify.app` for now | `netlify.toml` |
+| API | **Render** free web service | `render.yaml` |
+| Database | **Supabase** free Postgres | `DATABASE_URL` on Render |
 
-## How the pieces connect
+Netlify forwards `/api/*` to Render, so customers' browsers only ever talk to `wifisystem.netlify.app` and sign-in cookies are first-party. Point the Paystack webhook straight at Render: `https://<render host>/api/webhooks/paystack`.
 
-1. **Backend VPS** (any Linux VPS with a public IP) runs the API + Postgres behind Caddy/Nginx, and WireGuard (`wireguard/vps-wg0.conf.example`) on 10.8.0.1.
-2. **Router** imports `mikrotik/yourwifi-setup.rsc` (fill in the placeholders first). It:
-   - creates the hotspot on 10.5.50.0/24 with `login-by=http-pap,mac-cookie`
-   - opens the walled garden to your portal host and Paystack
-   - dials the WireGuard tunnel to the VPS (10.8.0.2)
-   - exposes the REST API only over the tunnel, to a least-privilege `yourwifi-api` user
-3. **Hotspot pages:** replace `PORTAL_HOST` in `mikrotik/hotspot/*.html` and upload them to the router's `yourwifi` folder. `login.html` redirects every unpaid device to the portal and passes `mac`, `ip`, `link-login-only` and `link-orig`.
-4. **API `.env`:** `NETWORK_DRIVER=mikrotik`, `MIKROTIK_URL=https://10.8.0.2`, `MIKROTIK_USER=yourwifi-api`, the password, `MIKROTIK_INSECURE_TLS=true` (the self-signed cert stays inside the tunnel), and `MIKROTIK_HOTSPOT_SERVER=hotspot1`.
-5. **Portal build env:** `VITE_HOTSPOT_LOGIN_HOSTS=10.5.50.1,login.yourwifi`. The portal only posts voucher codes to these hosts.
+**Order of setup:** Supabase first (to get `DATABASE_URL`), then Render (to get its host), then put that host into `netlify.toml` in place of `YOUR-API.onrender.com` and deploy Netlify. In Netlify's site settings the build command and publish folder come from `netlify.toml`, so leave them empty.
 
-## How access works
-
-- After a verified payment, the API creates a hotspot user on the router. Its name and password are both the 8-character voucher code. Its profile `yw-<rate>` carries the speed limit and `shared-users=1`, so only one device can use it at a time.
-- The portal then posts the code to the router's login page, which logs the phone in. A MAC cookie lets it reconnect automatically.
-- **Expiry is wall-clock.** The API's job removes the user, kicks the active session and deletes the cookies at `expires_at`. The `limit-uptime` set on the router is only a backstop in case the backend is unreachable.
-- **Data bundles:** the user also gets `limit-bytes-total`. RouterOS only updates a user's byte totals at logout, so the API polls usage every 30 s (user totals + live `/ip/hotspot/active` counters) and disconnects the customer as soon as the bundle is used up. Customers see the same numbers on their account page.
-- If the router is unreachable at payment time, the session stays `pending` and is retried every 30 s. The admin dashboard shows it, with a "Retry now" button.
+- **Supabase:** create a project and copy the **Session pooler** connection string (Render has no IPv6, and Supabase's direct connection is IPv6-only). Add `?sslmode=no-verify`, because Node doesn't trust Supabase's certificate authority by default, and set it as `DATABASE_URL`. Migrations run when the API starts.
+- **Render:** create a Blueprint from the repo. Set `DATABASE_URL`, `ADMIN_JWT_SECRET` (32+ random characters) and `PAYSTACK_SECRET_KEY` (a `sk_test_` key while testing). `PUBLIC_PORTAL_URL` and `CORS_ORIGINS` are already set to the Netlify address in `render.yaml`.
+- **Sleeping:** free Render services sleep after 15 minutes without traffic and take about a minute to wake on the next request. Paystack retries webhooks that time out, and the status page's "Check my payment" confirms payments directly, so nothing is lost, but the first visitor after a quiet spell waits. Render's cheapest paid instance removes this.
+- **Testing mode:** `render.yaml` starts with `NODE_ENV=development` (so Paystack test keys are accepted) and `MAIL_DRIVER=mock` (password reset links appear in Render's logs instead of being emailed). At go-live switch to `NODE_ENV=production` and `MAIL_DRIVER=smtp`, and set a live Paystack key, `SMTP_URL` and `MAIL_FROM`. Production then refuses to start if anything is still in test mode.
+- **Plans and admin login:** from your own computer, add them to the Supabase database (Render's free plan has no Shell). In PowerShell: `$env:DATABASE_URL="<the Supabase URI>"; npm run db:seed; npm run admin:create -- you@example.com 'a-long-password'`.
+- **Your own domain later:** add it in Netlify, then change `PUBLIC_PORTAL_URL` and `CORS_ORIGINS` on Render.
 
 ## Go-live checklist
 
-**Business and legal**
-- [ ] Your Starlink plan and terms allow reselling access (a Business/Priority plan is likely required)
-- [ ] NCC licensing for commercial internet service (check the current class licence requirements)
+**Business**
 - [ ] Paystack business verification is complete and live keys are issued
+- [ ] Stock targets set per plan, and the first generated batch is **On router** (or codes uploaded)
+- [ ] Real plan prices set in the admin dashboard (the seeded prices are placeholders)
+- [ ] Each plan's voucher codes in the admin dashboard match the plan's time and data limits in the Wi-Fi system that accepts them
+- [ ] Enough codes loaded for every active plan (the Overview warns when a plan has fewer than 10 left)
 
 **Backend**
 - [ ] `NODE_ENV=production`, real `DATABASE_URL`, `ADMIN_JWT_SECRET` (32+ random chars), `sk_live_` key
 - [ ] HTTPS on the portal domain; `TRUST_PROXY=true` behind the proxy
-- [ ] Paystack dashboard webhook URL set to `https://<host>/api/webhooks/paystack`
+- [ ] Paystack dashboard webhook URL set to `https://<api host>/api/webhooks/paystack`
 - [ ] Postgres backups scheduled
 - [ ] Admin account created with a strong password (`npm run admin:create`)
 - [ ] `MAIL_DRIVER=smtp` with a real `SMTP_URL` and `MAIL_FROM`; SPF and DKIM set up for the sending domain
 - [ ] "Forgot your password?" email arrives (check the spam folder too) and its link opens the portal
 
-**Router**
-- [ ] `mikrotik/yourwifi-setup.rsc` reviewed by the technician and imported; hotspot pages uploaded
-- [ ] WireGuard is up: the API's Network page shows the router **Online** with its identity
-- [ ] From the VPS: `curl -k -u yourwifi-api:… https://10.8.0.2/rest/system/identity` works
-- [ ] RouterOS admin password changed; Winbox/SSH not reachable from WAN
-
-**End-to-end on the real network** (use a temporary 2-minute, ₦100 plan)
-- [ ] A new phone is redirected to the portal automatically
-- [ ] Paystack checkout loads inside the walled garden: card, transfer and USSD
-- [ ] Bank 3-D Secure pages load. Add any blocked hosts to the walled garden
-- [ ] After paying, "Connect to the internet" logs the phone in
-- [ ] The same code can't be used on a second phone at the same time
-- [ ] After 2 minutes the phone is disconnected and sent back to the portal
-- [ ] Create a temporary 50 MB bundle: stream a video, check that the account page usage climbs within about 30 s, and that the phone is cut off at about 50 MB
-- [ ] Compare a session's "Data used" in admin with `/ip hotspot active print stats` on the router. They should match within one poll interval
-- [ ] Unplug the WireGuard tunnel, pay, then reconnect it: access turns on automatically within about 30 s
+**End-to-end** (use a temporary ₦100 plan)
+- [ ] Sign up, buy the plan with a real card, transfer and USSD: each shows "Payment successful" with a voucher code, and the code is under My purchases
+- [ ] The code logs a device in on the Wi-Fi, with the plan's time and data limits
+- [ ] A declined card shows "Payment declined", and the order shows as Failed in the admin dashboard
+- [ ] Close the browser during payment, then reopen My purchases: the payment still shows as paid (webhook or reconcile job)
+- [ ] Revenue for the test payment appears on the admin Overview
 - [ ] Hide the test plan

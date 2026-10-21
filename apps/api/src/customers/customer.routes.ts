@@ -1,16 +1,15 @@
-import type { AccountSession, CustomerProfile } from '@yourwifi/shared';
+import type { AccountOrder, CustomerProfile } from '@yourwifi/shared';
 import { createHash, randomBytes } from 'node:crypto';
-import { and, desc, eq, gt, isNull } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, ne } from 'drizzle-orm';
 import { Router, type Request } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
-import { accessSessions, customers, orders, passwordResetTokens } from '../db/schema';
+import { customers, orders, passwordResetTokens, plans, vouchers } from '../db/schema';
 import type { Deps } from '../deps';
 import { badRequest, HttpError } from '../lib/errors';
 import { normalizeNigerianPhone } from '../lib/ids';
 import { hashPassword, verifyPassword } from '../lib/password';
 import type { MailMessage } from '../mail';
-import { toSessionView } from '../sessions/views';
 import type { customerAuth } from './customer.auth';
 
 const password = z.string().min(8, 'Password must be at least 8 characters').max(200);
@@ -205,20 +204,24 @@ export function customerRoutes(deps: Deps, auth: ReturnType<typeof customerAuth>
     res.json(toProfile(customer));
   });
 
-  r.get('/me/sessions', auth.require, async (req, res) => {
+  // Purchase history, newest first. Abandoned checkouts (still pending) are left out.
+  r.get('/me/orders', auth.require, async (req, res) => {
     const rows = await db
-      .select({ s: accessSessions, reference: orders.reference, amountKobo: orders.amountKobo })
-      .from(accessSessions)
-      .innerJoin(orders, eq(orders.id, accessSessions.orderId))
-      .where(eq(accessSessions.customerId, req.customerId!))
-      .orderBy(desc(accessSessions.createdAt))
+      .select({ o: orders, planName: plans.name, voucherCode: vouchers.code })
+      .from(orders)
+      .innerJoin(plans, eq(plans.id, orders.planId))
+      .leftJoin(vouchers, eq(vouchers.orderId, orders.id))
+      .where(and(eq(orders.customerId, req.customerId!), ne(orders.status, 'pending')))
+      .orderBy(desc(orders.createdAt))
       .limit(50);
-    const body: AccountSession[] = rows.map(({ s, reference, amountKobo }) => ({
-      ...toSessionView(s),
-      id: s.id,
-      orderReference: reference,
-      amountKobo,
-      createdAt: s.createdAt.toISOString(),
+    const body: AccountOrder[] = rows.map(({ o, planName, voucherCode }) => ({
+      reference: o.reference,
+      status: o.status,
+      planName,
+      amountKobo: o.amountKobo,
+      voucherCode,
+      paidAt: o.paidAt?.toISOString() ?? null,
+      createdAt: o.createdAt.toISOString(),
     }));
     res.json(body);
   });

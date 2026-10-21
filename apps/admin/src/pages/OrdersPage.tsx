@@ -32,7 +32,7 @@ export function OrdersPage() {
           setQ(v);
           if (page !== 1) set({ page: '1' });
         }}
-        placeholder="Search reference or phone"
+        placeholder="Search reference, phone or voucher"
       />
       {data.error && <p className="error">{data.error.message}</p>}
       <div className="table-wrap">
@@ -43,6 +43,7 @@ export function OrdersPage() {
               <th>Reference</th>
               <th>Phone</th>
               <th>Plan</th>
+              <th>Voucher</th>
               <th className="num">Amount</th>
               <th>Status</th>
             </tr>
@@ -54,6 +55,7 @@ export function OrdersPage() {
                 <td className="mono">{o.reference}</td>
                 <td>{o.phone}</td>
                 <td>{o.planName}</td>
+                <td className="mono">{o.voucherCode ?? (o.status === 'success' ? <StatusBadge status="waiting" /> : '—')}</td>
                 <td className="num">{formatNaira(o.amountKobo)}</td>
                 <td>
                   <StatusBadge status={o.status} />

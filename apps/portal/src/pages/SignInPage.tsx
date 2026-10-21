@@ -51,8 +51,8 @@ export function SignInPage() {
         <h1>{mode === 'register' ? 'Create your account' : 'Welcome back'}</h1>
         <p>
           {mode === 'register'
-            ? 'Your account keeps your plans in one place, so you can check data and time left anytime.'
-            : 'Sign in to buy a plan or check your data and time left.'}
+            ? 'Your account keeps all your purchases in one place.'
+            : 'Sign in to buy a plan or see your purchases.'}
         </p>
       </section>
 

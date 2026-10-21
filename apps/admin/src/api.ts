@@ -1,12 +1,13 @@
 import type {
-  ActiveConnection,
+  AddVouchersResult,
   AdminCustomer,
   AdminOrder,
-  AdminSession,
   AdminStats,
-  NetworkDeviceView,
+  AdminVoucher,
   Paginated,
   Plan,
+  VoucherBatchView,
+  VoucherStock,
 } from '@yourwifi/shared';
 
 export class ApiError extends Error {
@@ -39,16 +40,21 @@ export interface ListParams {
   page: number;
   status?: string;
   q?: string;
+  planId?: string;
 }
 
 const qs = (p: ListParams) => {
   const s = new URLSearchParams({ page: String(p.page) });
   if (p.status) s.set('status', p.status);
   if (p.q) s.set('q', p.q);
+  if (p.planId) s.set('planId', p.planId);
   return `?${s}`;
 };
 
-export type PlanInput = Pick<Plan, 'name' | 'description' | 'priceKobo' | 'durationMinutes' | 'rateLimit' | 'dataCapMb' | 'active' | 'sortOrder'>;
+export type PlanInput = Pick<
+  Plan,
+  'name' | 'description' | 'priceKobo' | 'durationMinutes' | 'dataCapMb' | 'active' | 'sortOrder' | 'voucherStockTarget'
+>;
 
 export const api = {
   me: () => call<{ email: string }>('GET', '/me'),
@@ -56,16 +62,19 @@ export const api = {
   logout: () => call<void>('POST', '/logout'),
   stats: () => call<AdminStats>('GET', '/stats'),
   orders: (p: ListParams) => call<Paginated<AdminOrder>>('GET', `/orders${qs(p)}`),
-  sessions: (p: ListParams) => call<Paginated<AdminSession>>('GET', `/sessions${qs(p)}`),
-  revokeSession: (id: string) => call<{ status: string }>('POST', `/sessions/${id}/revoke`),
-  retrySession: (id: string) => call<{ status: string; lastError: string | null }>('POST', `/sessions/${id}/retry`),
   customers: (p: ListParams) => call<Paginated<AdminCustomer>>('GET', `/customers${qs(p)}`),
   resetCustomerPassword: (id: string) => call<{ temporaryPassword: string }>('POST', `/customers/${id}/reset-password`),
   plans: () => call<Plan[]>('GET', '/plans'),
   createPlan: (p: PlanInput) => call<Plan>('POST', '/plans', p),
   updatePlan: (id: string, p: Partial<PlanInput>) => call<Plan>('PATCH', `/plans/${id}`, p),
-  network: () =>
-    call<{ devices: NetworkDeviceView[]; active: ActiveConnection[]; activeError: string | null }>('GET', '/network'),
+  voucherStock: () => call<VoucherStock[]>('GET', '/vouchers/stock'),
+  vouchers: (p: ListParams) => call<Paginated<AdminVoucher>>('GET', `/vouchers${qs(p)}`),
+  addVouchers: (planId: string, codes: string) => call<AddVouchersResult>('POST', '/vouchers', { planId, codes }),
+  deleteVoucher: (id: string) => call<void>('DELETE', `/vouchers/${id}`),
+  voucherBatches: () => call<VoucherBatchView[]>('GET', '/vouchers/batches'),
+  generateBatch: () => call<{ batch: { id: string; codeCount: number } | null }>('POST', '/vouchers/batches'),
+  markBatchReady: (id: string) => call<void>('POST', `/vouchers/batches/${id}/ready`),
+  batchExportUrl: (id: string, format: 'rsc' | 'csv') => `/api/admin/vouchers/batches/${id}/export?format=${format}`,
 };
 
 const lagos = new Intl.DateTimeFormat('en-NG', {

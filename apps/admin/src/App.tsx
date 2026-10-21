@@ -3,19 +3,17 @@ import { NavLink, Navigate, Route, Routes } from 'react-router';
 import { api, ApiError } from './api';
 import { CustomersPage } from './pages/CustomersPage';
 import { LoginPage } from './pages/LoginPage';
-import { NetworkPage } from './pages/NetworkPage';
 import { OrdersPage } from './pages/OrdersPage';
 import { OverviewPage } from './pages/OverviewPage';
 import { PlansPage } from './pages/PlansPage';
-import { SessionsPage } from './pages/SessionsPage';
+import { VouchersPage } from './pages/VouchersPage';
 
 const NAV = [
   { to: '/', label: 'Overview', end: true },
   { to: '/orders', label: 'Payments' },
-  { to: '/sessions', label: 'Sessions' },
   { to: '/customers', label: 'Customers' },
   { to: '/plans', label: 'Plans' },
-  { to: '/network', label: 'Network' },
+  { to: '/vouchers', label: 'Vouchers' },
 ];
 
 export function App() {
@@ -56,10 +54,9 @@ export function App() {
         <Routes>
           <Route path="/" element={<OverviewPage />} />
           <Route path="/orders" element={<OrdersPage />} />
-          <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/customers" element={<CustomersPage />} />
           <Route path="/plans" element={<PlansPage />} />
-          <Route path="/network" element={<NetworkPage />} />
+          <Route path="/vouchers" element={<VouchersPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

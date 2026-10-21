@@ -164,14 +164,13 @@ input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px
 .badge.ok { background: var(--primary-tint); color: var(--primary); }
 .badge.bad { background: var(--danger-tint); color: var(--danger); }
 
-/* ---------- access code ---------- */
-.voucher { display: flex; flex-direction: column; align-items: center; gap: var(--s1); padding: var(--s4) var(--s3); border-radius: var(--radius); background: var(--primary-tint); }
-.voucher-label { font-size: var(--fs-small); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
-.voucher-code { font: 600 32px/1.2 ui-monospace, 'SF Mono', Menlo, monospace; letter-spacing: 0.14em; color: var(--primary); background: none; border: 0; cursor: pointer; padding: var(--s1); }
-.voucher-hint { font-size: var(--fs-small); color: var(--muted); }
-
+/* ---------- payment result ---------- */
 .ref { font-family: ui-monospace, monospace; background: var(--bg); padding: var(--s2) 12px; border-radius: 10px; word-break: break-all; font-size: var(--fs-small); color: var(--muted); }
 .amount { font-size: 40px; font-weight: 600; letter-spacing: -0.02em; }
+.receipt { display: grid; grid-template-columns: auto 1fr; gap: var(--s2) var(--s3); margin: 0; padding: var(--s3); border-radius: 14px; background: var(--bg); text-align: left; font-size: var(--fs-small); }
+.receipt dt { color: var(--muted); }
+.receipt dd { margin: 0; text-align: right; font-weight: 500; word-break: break-all; }
+.mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
 
 .spinner { width: 40px; height: 40px; border-radius: 50%; border: 3px solid var(--primary-tint); border-top-color: var(--primary); animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -185,6 +184,13 @@ input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px
   h1 { font-size: 26px; }
 }
 
+/* ---------- voucher code ---------- */
+.voucher { display: flex; flex-direction: column; align-items: center; gap: var(--s1); padding: var(--s4) var(--s3); border-radius: var(--radius); background: var(--primary-tint); }
+.voucher-label { font-size: var(--fs-small); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.voucher-code { font: 600 32px/1.2 ui-monospace, 'SF Mono', Menlo, monospace; letter-spacing: 0.08em; color: var(--primary); background: none; border: 0; cursor: pointer; padding: var(--s1); word-break: break-all; }
+.voucher-hint { font-size: var(--fs-small); color: var(--muted); }
+.plan.sold-out { opacity: 0.55; cursor: default; }
+
 /* ---------- segmented control (plan type, sign in / create account) ---------- */
 .segmented { display: flex; padding: 4px; gap: 4px; border-radius: var(--pill); background: var(--neutral); margin-bottom: var(--s3); }
 .segmented button { flex: 1; font: inherit; font-size: var(--fs-small); font-weight: 600; height: 40px; border: 0; border-radius: var(--pill); background: none; color: var(--muted); cursor: pointer; }
@@ -195,16 +201,6 @@ input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px
 .password { position: relative; }
 .password input { padding-right: 64px; }
 .password .link { position: absolute; right: var(--s3); top: 50%; transform: translateY(-50%); }
-
-/* ---------- usage meters: the bar shows what is LEFT ---------- */
-.meters { display: flex; flex-direction: column; gap: var(--s3); text-align: left; }
-.meter { display: flex; flex-direction: column; gap: 6px; }
-.meter-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s2); }
-.meter-label { font-size: var(--fs-small); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
-.meter-value { font-size: var(--fs-title); font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
-.meter-track { height: 8px; border-radius: var(--pill); background: var(--neutral); overflow: hidden; }
-.meter-fill { height: 100%; border-radius: var(--pill); background: var(--primary); transition: width 0.4s ease; }
-.meter-track.low .meter-fill { background: var(--danger); }
 
 /* ---------- account history ---------- */
 .list { background: var(--surface); border-radius: var(--radius); padding: var(--s4); display: flex; flex-direction: column; }

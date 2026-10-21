@@ -1,21 +1,18 @@
-import { formatNaira, type AccountSession } from '@yourwifi/shared';
+import { formatNaira, type AccountOrder } from '@yourwifi/shared';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../auth';
-import { ConnectPanel } from '../components/ConnectPanel';
-import { UsageMeter } from '../components/UsageMeter';
-import { api, ApiError, formatLagosTime, navigate, signInUrl, type HotspotContext } from '../lib';
+import { api, ApiError, formatLagosTime, navigate, signInUrl } from '../lib';
 
-const ENDED: Record<string, string> = {
-  expired: 'Time ran out',
-  exhausted: 'Data used up',
-  revoked: 'Disconnected',
+const STATUS: Record<string, { label: string; tone: string }> = {
+  success: { label: 'Paid', tone: 'ok' },
+  failed: { label: 'Declined', tone: 'bad' },
+  flagged: { label: 'Under review', tone: 'warn' },
 };
 
-export function AccountPage({ hotspot }: { hotspot: HotspotContext }) {
+export function AccountPage() {
   const { customer, signOut } = useAuth();
-  const [sessions, setSessions] = useState<AccountSession[] | null>(null);
+  const [orders, setOrders] = useState<AccountOrder[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
     if (customer === null) navigate(signInUrl('/account'));
@@ -23,31 +20,13 @@ export function AccountPage({ hotspot }: { hotspot: HotspotContext }) {
 
   useEffect(() => {
     if (!customer) return;
-    let stopped = false;
-    const load = () =>
-      api
-        .mySessions()
-        .then((s) => {
-          if (!stopped) {
-            setSessions(s);
-            setNow(Date.now());
-            setError(null);
-          }
-        })
-        .catch((e) => !stopped && setError((e as Error).message));
-    void load();
-    // Usage is read from the router every ~30 s; refresh to match.
-    const t = setInterval(load, 30_000);
-    return () => {
-      stopped = true;
-      clearInterval(t);
-    };
+    api
+      .myOrders()
+      .then(setOrders)
+      .catch((e: Error) => setError(e.message));
   }, [customer]);
 
   if (!customer) return <div className="skeleton" aria-label="Loading" />;
-
-  const live = sessions?.filter((s) => s.status === 'active' || s.status === 'pending') ?? [];
-  const past = sessions?.filter((s) => !(s.status === 'active' || s.status === 'pending')) ?? [];
 
   return (
     <div className="stack">
@@ -58,52 +37,43 @@ export function AccountPage({ hotspot }: { hotspot: HotspotContext }) {
       </section>
 
       {error && <div className="alert">{error}</div>}
-      {!sessions && !error && <div className="skeleton" aria-label="Loading plans" />}
+      {!orders && !error && <div className="skeleton" aria-label="Loading purchases" />}
 
-      {sessions && live.length === 0 && (
+      {orders?.length === 0 && (
         <section className="card">
-          <h2>No active plan</h2>
-          <p className="muted">Buy a plan to get online. It shows up here with your data and time left.</p>
+          <h2>No purchases yet</h2>
+          <p className="muted">Plans you buy show up here.</p>
           <a className="btn primary block" href="/">
             See plans
           </a>
         </section>
       )}
 
-      {live.map((s) =>
-        s.status === 'active' ? (
-          <ConnectPanel key={s.id} session={s} hotspot={hotspot} now={now} />
-        ) : (
-          <section key={s.id} className="card">
-            <div className="badge">Setting up</div>
-            <h2>{s.planName}</h2>
-            <p className="muted">Payment received. Your access turns on automatically in a moment.</p>
-            <UsageMeter session={s} now={now} />
-          </section>
-        ),
-      )}
-
-      {live.length > 0 && (
-        <a className="btn block" href="/">
-          Buy another plan
-        </a>
-      )}
-
-      {past.length > 0 && (
-        <section className="list">
-          <h2>Past plans</h2>
-          {past.map((s) => (
-            <div key={s.id} className="list-row">
-              <div>
-                <strong>{s.planName}</strong>
-                <span className="muted small">
-                  {formatLagosTime(s.createdAt)} · {formatNaira(s.amountKobo)}
-                </span>
+      {orders && orders.length > 0 && (
+        <>
+          <section className="list">
+            <h2>My purchases</h2>
+            {orders.map((o) => (
+              <div key={o.reference} className="list-row">
+                <div>
+                  <strong>{o.planName}</strong>
+                  <span className="muted small">
+                    {formatLagosTime(o.paidAt ?? o.createdAt)} · {formatNaira(o.amountKobo)}
+                  </span>
+                  {o.status === 'success' && (
+                    <span className="small">
+                      Voucher: {o.voucherCode ? <strong className="mono">{o.voucherCode}</strong> : <em className="muted">being prepared</em>}
+                    </span>
+                  )}
+                </div>
+                <span className={`badge ${STATUS[o.status]?.tone ?? ''}`}>{STATUS[o.status]?.label ?? o.status}</span>
               </div>
-              <span className="muted small">{ENDED[s.status] ?? s.status}</span>
-            </div>
-          ))}
-        </section>
+            ))}
+          </section>
+          <a className="btn primary block" href="/">
+            Buy a plan
+          </a>
+        </>
       )}
 
       <ChangeEmail current={customer.email} />

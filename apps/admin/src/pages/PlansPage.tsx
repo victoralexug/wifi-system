@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDataMb, formatDuration, formatNaira, type Plan } from '@yourwifi/shared';
 import { useState, type FormEvent } from 'react';
+import { Link } from 'react-router';
 import { api, type PlanInput } from '../api';
 import { Panel } from '../components/ui';
 
@@ -13,13 +14,13 @@ interface Draft {
   priceNaira: string;
   duration: string;
   unit: Unit;
-  rateLimit: string;
   dataCapGb: string;
   active: boolean;
   sortOrder: string;
+  voucherStockTarget: string;
 }
 
-const empty: Draft = { name: '', description: '', priceNaira: '', duration: '1', unit: 'hours', rateLimit: '5M/5M', dataCapGb: '', active: true, sortOrder: '0' };
+const empty: Draft = { name: '', description: '', priceNaira: '', duration: '1', unit: 'hours', dataCapGb: '', active: true, sortOrder: '0', voucherStockTarget: '0' };
 
 function toDraft(p: Plan): Draft {
   const unit: Unit = p.durationMinutes % 1440 === 0 ? 'days' : p.durationMinutes % 60 === 0 ? 'hours' : 'minutes';
@@ -29,10 +30,10 @@ function toDraft(p: Plan): Draft {
     priceNaira: String(p.priceKobo / 100),
     duration: String(p.durationMinutes / UNITS[unit]),
     unit,
-    rateLimit: p.rateLimit ?? '',
     dataCapGb: p.dataCapMb ? String(+(p.dataCapMb / 1024).toFixed(3)) : '',
     active: p.active,
     sortOrder: String(p.sortOrder),
+    voucherStockTarget: String(p.voucherStockTarget),
   };
 }
 
@@ -43,11 +44,11 @@ function fromDraft(d: Draft): PlanInput {
     // Convert to integer kobo exactly once, here.
     priceKobo: Math.round(Number(d.priceNaira) * 100),
     durationMinutes: Math.round(Number(d.duration) * UNITS[d.unit]),
-    rateLimit: d.rateLimit.trim() || null,
-    // Entered in GB, stored in MB (binary, matching the router).
+    // Entered in GB, stored in MB (binary: 1 GB = 1024 MB).
     dataCapMb: d.dataCapGb ? Math.round(Number(d.dataCapGb) * 1024) : null,
     active: d.active,
     sortOrder: Number(d.sortOrder) || 0,
+    voucherStockTarget: Math.max(0, Math.round(Number(d.voucherStockTarget) || 0)),
   };
 }
 
@@ -90,7 +91,7 @@ export function PlansPage() {
         </button>
       </div>
       <p className="muted">
-        Price changes apply to new purchases only. Sessions already paid for keep the terms they were bought with.
+        Price changes apply to new purchases only. Past payments keep the price they were paid at.
         Plans can't be deleted because past payments refer to them; switch a plan off to hide it.
       </p>
 
@@ -121,16 +122,17 @@ export function PlansPage() {
               </span>
             </label>
             <label>
-              Speed limit (download/upload)
-              <input {...field('rateLimit')} placeholder="5M/5M, leave empty for unlimited" />
-            </label>
-            <label>
               Data bundle (GB)
               <input type="number" min="0.1" step="0.1" {...field('dataCapGb')} placeholder="Empty means unlimited data" />
             </label>
             <label>
               Sort order
               <input type="number" {...field('sortOrder')} />
+            </label>
+            <label>
+              Keep this many voucher codes in stock
+              <input type="number" min="0" step="1" {...field('voucherStockTarget')} />
+              <small className="muted">Each month new codes are generated to top up to this number. 0 = you upload codes yourself.</small>
             </label>
             <label className="check">
               <input type="checkbox" checked={draft.active} onChange={(e) => setDraft({ ...draft, active: e.target.checked })} />
@@ -157,8 +159,8 @@ export function PlansPage() {
               <th>Name</th>
               <th className="num">Price</th>
               <th>Duration</th>
-              <th>Speed</th>
               <th>Data</th>
+              <th className="num">Codes left</th>
               <th>Visible</th>
               <th />
             </tr>
@@ -172,8 +174,10 @@ export function PlansPage() {
                 </td>
                 <td className="num">{formatNaira(p.priceKobo)}</td>
                 <td>{formatDuration(p.durationMinutes)}</td>
-                <td>{p.rateLimit ?? 'Unlimited'}</td>
                 <td>{p.dataCapMb ? formatDataMb(p.dataCapMb) : 'Unlimited'}</td>
+                <td className="num">
+                  <Link to={`/vouchers?plan=${p.id}`}>{p.vouchersAvailable}</Link>
+                </td>
                 <td>{p.active ? 'Yes' : 'Hidden'}</td>
                 <td className="actions">
                   <button className="btn" onClick={() => start(p)}>

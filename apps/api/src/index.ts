@@ -4,7 +4,6 @@ import { createDatabase } from './db/client';
 import { startJobs } from './jobs';
 import { createLogger } from './lib/logger';
 import { createMailService } from './mail';
-import { createNetworkService } from './network';
 import { createPaymentProvider } from './payments';
 
 async function main() {
@@ -15,25 +14,25 @@ async function main() {
   await database.migrate(config.MIGRATIONS_DIR);
   logger.info({ driver: database.driver }, 'database ready');
 
+  const now = () => new Date();
   const deps = {
     config,
     db: database.db,
     logger,
     payments: createPaymentProvider(config),
-    network: createNetworkService(config),
     mail: createMailService(config, logger),
-    now: () => new Date(),
+    now,
   };
-  const { app, sessions, orders } = createApp(deps);
-  const stopJobs = startJobs(deps, sessions, orders);
+  const { app, orders, vouchers } = createApp(deps);
+  const stopJobs = startJobs(deps, orders, vouchers);
 
   const server = app.listen(config.PORT, () => {
     logger.info(
-      { port: config.PORT, payments: deps.payments.name, network: deps.network.driver, mail: deps.mail.driver },
+      { port: config.PORT, payments: deps.payments.name, mail: deps.mail.driver },
       'YourWiFi API listening',
     );
-    if (deps.payments.name === 'mock' || deps.network.driver === 'mock') {
-      logger.warn('running with simulated payments and/or network; never use this setup for real customers');
+    if (deps.payments.name === 'mock') {
+      logger.warn('running with simulated payments; never use this setup for real customers');
     }
   });
 

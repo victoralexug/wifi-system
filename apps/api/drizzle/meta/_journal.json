@@ -29,6 +29,27 @@
       "when": 1792492269431,
       "tag": "0003_email_password_reset",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792578401822,
+      "tag": "0004_remove_network",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792580437893,
+      "tag": "0005_vouchers",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792584989827,
+      "tag": "0006_voucher_batches",
+      "breakpoints": true
     }
   ]
 }

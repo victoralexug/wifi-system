@@ -2,15 +2,17 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 const STATUS: Record<string, { tone: 'good' | 'warning' | 'critical' | 'neutral'; label: string }> = {
   success: { tone: 'good', label: 'Paid' },
-  active: { tone: 'good', label: 'Active' },
-  online: { tone: 'good', label: 'Online' },
   pending: { tone: 'warning', label: 'Pending' },
   flagged: { tone: 'critical', label: 'Flagged' },
   failed: { tone: 'critical', label: 'Failed' },
-  offline: { tone: 'critical', label: 'Offline' },
-  revoked: { tone: 'neutral', label: 'Revoked' },
-  expired: { tone: 'neutral', label: 'Expired' },
-  exhausted: { tone: 'neutral', label: 'Data used up' },
+  available: { tone: 'good', label: 'Unused' },
+  used: { tone: 'neutral', label: 'Given out' },
+  sold_out: { tone: 'critical', label: 'Sold out' },
+  waiting: { tone: 'warning', label: 'Waiting' },
+  done: { tone: 'good', label: 'Done' },
+  low: { tone: 'warning', label: 'Low' },
+  waiting_router: { tone: 'warning', label: 'Waiting for router' },
+  loaded: { tone: 'good', label: 'On router' },
   unknown: { tone: 'neutral', label: 'Unknown' },
 };
 

@@ -4,27 +4,19 @@ import { loadConfig } from '../src/config';
 import { createTestContext, signUp } from './helpers';
 
 describe('config guards', () => {
-  it('refuses simulated payments or network in production', () => {
+  it('refuses simulated payments, test keys and logged-only email in production', () => {
     const base = {
       NODE_ENV: 'production',
       DATABASE_URL: 'postgres://x',
       ADMIN_JWT_SECRET: 'x'.repeat(40),
       PAYSTACK_SECRET_KEY: 'sk_live_x',
-      MIKROTIK_URL: 'https://10.8.0.2',
-      MIKROTIK_USER: 'api',
-      MIKROTIK_PASSWORD: 'p',
       MAIL_DRIVER: 'smtp',
       SMTP_URL: 'smtps://u:p@smtp.example.com:465',
     };
-    expect(() => loadConfig({ ...base, PAYMENT_DRIVER: 'mock', NETWORK_DRIVER: 'mikrotik' })).toThrow(/PAYMENT_DRIVER=mock/);
-    expect(() => loadConfig({ ...base, PAYMENT_DRIVER: 'paystack', NETWORK_DRIVER: 'mock' })).toThrow(/NETWORK_DRIVER=mock/);
-    expect(() =>
-      loadConfig({ ...base, PAYMENT_DRIVER: 'paystack', NETWORK_DRIVER: 'mikrotik', PAYSTACK_SECRET_KEY: 'sk_test_x' }),
-    ).toThrow(/test key/);
-    expect(() =>
-      loadConfig({ ...base, PAYMENT_DRIVER: 'paystack', NETWORK_DRIVER: 'mikrotik', MAIL_DRIVER: 'mock' }),
-    ).toThrow(/MAIL_DRIVER=mock/);
-    expect(loadConfig({ ...base, PAYMENT_DRIVER: 'paystack', NETWORK_DRIVER: 'mikrotik' }).isProd).toBe(true);
+    expect(() => loadConfig({ ...base, PAYMENT_DRIVER: 'mock' })).toThrow(/PAYMENT_DRIVER=mock/);
+    expect(() => loadConfig({ ...base, PAYMENT_DRIVER: 'paystack', PAYSTACK_SECRET_KEY: 'sk_test_x' })).toThrow(/test key/);
+    expect(() => loadConfig({ ...base, PAYMENT_DRIVER: 'paystack', MAIL_DRIVER: 'mock' })).toThrow(/MAIL_DRIVER=mock/);
+    expect(loadConfig({ ...base, PAYMENT_DRIVER: 'paystack' }).isProd).toBe(true);
   });
 });
 
@@ -32,7 +24,7 @@ describe('admin API', () => {
   let ctx: Awaited<ReturnType<typeof createTestContext>>;
   afterEach(() => ctx.close());
 
-  it('requires login, then serves stats, sessions and revocation', async () => {
+  it('requires login, then serves stats, payments, plans and customers', async () => {
     ctx = await createTestContext();
     await request(ctx.app).get('/api/admin/stats').expect(401);
     await request(ctx.app)
@@ -49,27 +41,27 @@ describe('admin API', () => {
 
     const stats = await agent.get('/api/admin/stats').expect(200);
     expect(stats.body.revenueKobo.today).toBe(10_000);
-    expect(stats.body.activeSessions).toBe(1);
+    expect(stats.body.orders).toMatchObject({ success: 1, pending: 0 });
     expect(stats.body.dailyRevenue).toHaveLength(14);
     // Today's bucket must hold today's revenue, whatever the database session time zone is.
     expect(stats.body.dailyRevenue.at(-1).revenueKobo).toBe(10_000);
 
-    const list = await agent.get('/api/admin/sessions?q=0701').expect(200);
+    const list = await agent.get('/api/admin/orders?q=0701').expect(200);
     expect(list.body.total).toBe(1);
-    const session = list.body.items[0];
-    expect(session.phone).toBe('+2347011112222');
-
-    await agent.post(`/api/admin/sessions/${session.id}/revoke`).expect(200);
-    expect(ctx.network.users.size).toBe(0);
-    const after = await agent.get('/api/admin/sessions?status=revoked').expect(200);
-    expect(after.body.total).toBe(1);
+    expect(list.body.items[0]).toMatchObject({ phone: '+2347011112222', status: 'success', planName: '1 Hour' });
+    expect((await agent.get('/api/admin/orders?status=failed').expect(200)).body.total).toBe(0);
 
     const created = await agent
       .post('/api/admin/plans')
-      .send({ name: '30 Days', priceKobo: 700_000, durationMinutes: 43200, rateLimit: '10M/10M' })
+      .send({ name: '30 Days', priceKobo: 700_000, durationMinutes: 43200 })
       .expect(201);
-    await agent.patch(`/api/admin/plans/${created.body.id}`).send({ active: false }).expect(200);
-    await agent.post('/api/admin/plans').send({ name: 'Bad', priceKobo: 1000, durationMinutes: 60, rateLimit: 'fast' }).expect(400);
+    const hidden = await agent.patch(`/api/admin/plans/${created.body.id}`).send({ active: false, sortOrder: 7 }).expect(200);
+    // An update changes only the fields it sends.
+    expect(hidden.body).toMatchObject({ active: false, sortOrder: 7, name: '30 Days', priceKobo: 700_000, durationMinutes: 43200 });
+    await agent.patch(`/api/admin/plans/${created.body.id}`).send({ dataCapMb: 2048 }).expect(200);
+    const again = await agent.patch(`/api/admin/plans/${created.body.id}`).send({ voucherStockTarget: 50 }).expect(200);
+    expect(again.body).toMatchObject({ dataCapMb: 2048, sortOrder: 7, active: false, voucherStockTarget: 50 });
+    await agent.post('/api/admin/plans').send({ name: 'Bad', priceKobo: 50, durationMinutes: 60 }).expect(400);
 
     // Support flow: reset a forgotten customer password, then the customer signs in with it.
     const customers = await agent.get('/api/admin/customers?q=0701').expect(200);

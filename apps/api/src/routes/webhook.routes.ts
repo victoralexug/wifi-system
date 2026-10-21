@@ -5,8 +5,8 @@ import type { OrderService } from '../orders/orders.service';
 
 /**
  * Must be mounted before express.json(): the signature is computed over the raw bytes.
- * The webhook only triggers confirmPayment, which re-verifies with Paystack before granting
- * anything, so a replayed or forged event can never grant access by itself.
+ * The webhook only triggers confirmPayment, which re-verifies with Paystack before marking
+ * anything paid, so a replayed or forged event can never do so by itself.
  */
 export function webhookRoutes(deps: Deps, orderService: OrderService): Router {
   const r = Router();
@@ -30,9 +30,7 @@ export function webhookRoutes(deps: Deps, orderService: OrderService): Router {
     }
 
     if (parsed.event === 'charge.success' && parsed.reference) {
-      // Provisioning runs in the background so Paystack gets a quick 200.
-      // The retry job handles routers that are slow or offline.
-      await orderService.confirmPayment(parsed.reference, { awaitProvision: false });
+      await orderService.confirmPayment(parsed.reference);
     }
     res.sendStatus(200);
   });

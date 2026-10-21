@@ -1,13 +1,13 @@
 import { formatNaira, type OrderStatusResponse } from '@yourwifi/shared';
+import { VoucherCode } from '../components/VoucherCode';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ConnectPanel } from '../components/ConnectPanel';
-import { api, ApiError, navigate, signInUrl, store, SUPPORT_PHONE, type HotspotContext } from '../lib';
+import { api, ApiError, formatLagosTime, navigate, signInUrl, store, SUPPORT_PHONE } from '../lib';
 
 const POLL_MS = 3000;
 const GIVE_UP_MS = 3 * 60_000;
 
-/** Paystack returns here with ?reference=… This page only displays status; the backend decides. */
-export function StatusPage({ hotspot }: { hotspot: HotspotContext }) {
+/** Paystack returns here with ?reference=… This page only displays the result; the backend decides. */
+export function StatusPage() {
   const q = new URLSearchParams(location.search);
   const reference = q.get('reference') || q.get('trxref') || store.get('yw:reference');
   const [order, setOrder] = useState<OrderStatusResponse | null>(null);
@@ -17,8 +17,8 @@ export function StatusPage({ hotspot }: { hotspot: HotspotContext }) {
   const startedAt = useRef(Date.now());
   const triedVerify = useRef(false);
 
-  const done = (o: OrderStatusResponse | null) =>
-    !!o && (o.status === 'failed' || o.status === 'flagged' || o.session?.status === 'active');
+  // A paid order can briefly wait for a voucher (its plan sold out mid-checkout), so keep polling for it.
+  const done = (o: OrderStatusResponse | null) => !!o && o.status !== 'pending' && !(o.status === 'success' && !o.voucherCode);
 
   const verify = useCallback(async () => {
     if (!reference) return;
@@ -45,14 +45,14 @@ export function StatusPage({ hotspot }: { hotspot: HotspotContext }) {
         setError(null);
         if (done(o)) return;
         // The webhook is normally faster. If it's late, ask the backend to check with Paystack once.
-        if (!triedVerify.current && o.status === 'pending' && Date.now() - startedAt.current > 8000) {
+        if (!triedVerify.current && Date.now() - startedAt.current > 8000) {
           triedVerify.current = true;
           const v = await api.verify(reference).catch(() => null);
           if (v && !stopped) setOrder(v);
           if (done(v)) return;
         }
       } catch (e) {
-        // Captive-portal browsers sometimes drop cookies across the Paystack redirect.
+        // Some browsers drop cookies across the Paystack redirect.
         if (e instanceof ApiError && e.status === 401) {
           navigate(signInUrl(`/status?reference=${encodeURIComponent(reference)}`));
           return;
@@ -84,16 +84,46 @@ export function StatusPage({ hotspot }: { hotspot: HotspotContext }) {
     );
   }
 
-  if (order?.session?.status === 'active') {
+  if (order?.status === 'success') {
     return (
       <div className="stack">
-        <section className="hero compact">
-          <h1>You're all set</h1>
-          <p>Payment received. You can check your data and time left anytime in My account.</p>
+        <section className="card">
+          <div className="badge ok">Payment successful</div>
+          <h1>Thank you!</h1>
+          <p className="muted">Your payment for {order.planName} went through.</p>
+          {order.voucherCode ? (
+            <>
+              <VoucherCode code={order.voucherCode} />
+              <p className="note">
+                Connect to the Wi-Fi and open any website. When the login page appears, enter this voucher code.
+              </p>
+            </>
+          ) : (
+            <p className="note">
+              Your voucher code is being prepared. It will appear here and under My purchases shortly.
+              {SUPPORT_PHONE && ` If it hasn't appeared within a few minutes, call ${SUPPORT_PHONE}.`}
+            </p>
+          )}
+          <dl className="receipt">
+            <dt>Amount</dt>
+            <dd>{formatNaira(order.amountKobo)}</dd>
+            <dt>Plan</dt>
+            <dd>{order.planName}</dd>
+            {order.paidAt && (
+              <>
+                <dt>Paid</dt>
+                <dd>{formatLagosTime(order.paidAt)}</dd>
+              </>
+            )}
+            <dt>Reference</dt>
+            <dd className="mono">{order.reference}</dd>
+          </dl>
+          <a className="btn primary block" href="/account">
+            View my purchases
+          </a>
         </section>
-        <ConnectPanel session={order.session} hotspot={hotspot} />
-        <a className="btn block" href="/account">
-          Go to My account
+        <a className="btn block" href="/">
+          Buy another plan
         </a>
       </div>
     );
@@ -102,9 +132,10 @@ export function StatusPage({ hotspot }: { hotspot: HotspotContext }) {
   if (order?.status === 'failed') {
     return (
       <section className="card">
-        <div className="badge bad">Payment not completed</div>
+        <div className="badge bad">Payment declined</div>
         <h1>Your payment didn't go through</h1>
-        <p className="muted">You have not been charged for internet access. You can try again.</p>
+        <p className="muted">You have not been charged. You can try again with the same or another payment method.</p>
+        <code className="ref">{reference}</code>
         <a className="btn primary block" href="/">
           Try again
         </a>
@@ -126,27 +157,19 @@ export function StatusPage({ hotspot }: { hotspot: HotspotContext }) {
     );
   }
 
-  const paid = order?.status === 'success';
   return (
     <section className="card">
       <div className="spinner" aria-hidden="true" />
-      <h1>{paid ? 'Payment received. Turning on your internet…' : 'Confirming your payment…'}</h1>
+      <h1>Confirming your payment…</h1>
       {order && (
         <p className="muted">
           {order.planName} · {formatNaira(order.amountKobo)}
         </p>
       )}
-      {paid && order?.session?.status === 'pending' && (
-        <p className="note">Your access code is {order.session.voucherCode}. It will start working in a moment.</p>
-      )}
       {error && <div className="alert">{error}</div>}
       {(timedOut || error) && (
         <>
-          <p className="muted">
-            {paid
-              ? 'This is taking longer than usual. Your payment is safe, and access will turn on automatically.'
-              : "If you completed payment, tap below and we'll check with Paystack."}
-          </p>
+          <p className="muted">If you completed payment, tap below and we'll check with Paystack.</p>
           <button className="btn primary block" onClick={verify} disabled={checking}>
             {checking ? 'Checking…' : 'Check my payment'}
           </button>

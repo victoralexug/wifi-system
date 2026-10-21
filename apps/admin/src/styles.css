@@ -205,3 +205,13 @@ input:focus, select:focus { outline: none; border-color: var(--primary); box-sha
 .x-axis span { flex: 1; text-align: center; white-space: nowrap; }
 .tooltip { position: absolute; top: 0; background: var(--surface); border-radius: 12px; padding: var(--s2) 12px; display: flex; flex-direction: column; font-size: var(--fs-small); pointer-events: none; white-space: nowrap; box-shadow: 0 0 0 1px var(--line), 0 8px 24px rgb(22 27 38 / 12%); z-index: 2; }
 .temp-password { display: inline-flex; align-items: center; gap: var(--s2); font-size: var(--fs-small); background: var(--primary-tint); padding: 4px 4px 4px 12px; border-radius: var(--pill); }
+
+/* ---------- vouchers ---------- */
+.voucher-form { display: flex; flex-direction: column; gap: var(--s3); max-width: 640px; }
+.voucher-form label { display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-small); font-weight: 600; color: var(--muted); }
+.voucher-form .row { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.voucher-form .result { display: flex; flex-direction: column; gap: var(--s1); }
+.file-btn { cursor: pointer; }
+textarea { font: inherit; padding: 12px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); resize: vertical; min-width: 0; }
+textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-tint); }
+.plan-filter { align-self: flex-start; }

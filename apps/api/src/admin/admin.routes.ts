@@ -1,22 +1,23 @@
-import type {
-  AdminCustomer,
-  AdminOrder,
-  AdminSession,
-  AdminStats,
-  NetworkDeviceView,
-  Paginated,
-  Plan,
+import {
+  LOW_VOUCHER_STOCK,
+  type AdminCustomer,
+  type AdminOrder,
+  type AdminStats,
+  type AdminVoucher,
+  type Paginated,
+  type Plan,
 } from '@yourwifi/shared';
-import { and, asc, count, desc, eq, gte, ilike, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, ilike, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
-import { accessSessions, admins, customers, networkDevices, orders, plans } from '../db/schema';
+import { admins, customers, orders, plans, vouchers } from '../db/schema';
 import type { Deps } from '../deps';
-import { HttpError, notFound } from '../lib/errors';
-import { generateVoucherCode } from '../lib/ids';
+import { badRequest, HttpError, notFound } from '../lib/errors';
+import { generateCode } from '../lib/ids';
 import { hashPassword, verifyPassword } from '../lib/password';
-import type { SessionService } from '../sessions/sessions.service';
+import { toCsv, toRouterOsScript } from '../vouchers/export';
+import type { VoucherService } from '../vouchers/vouchers.service';
 import { adminAuth } from './auth';
 
 const loginBody = z.object({ email: z.email(), password: z.string().min(1).max(200) });
@@ -28,17 +29,29 @@ const listQuery = z.object({
   q: z.string().trim().max(100).optional(),
 });
 
-const rateLimitPattern = /^\d+[kKmMgG]?\/\d+[kKmMgG]?$/;
-const planBody = z.object({
+const planFields = z.object({
   name: z.string().trim().min(1).max(60),
-  description: z.string().trim().max(200).default(''),
+  description: z.string().trim().max(200),
   priceKobo: z.number().int().min(100),
   durationMinutes: z.number().int().min(1).max(60 * 24 * 90),
-  rateLimit: z.string().regex(rateLimitPattern, 'Use RouterOS syntax, e.g. 5M/5M').nullable().default(null),
-  dataCapMb: z.number().int().positive().nullable().default(null),
-  active: z.boolean().default(true),
-  sortOrder: z.number().int().default(0),
+  dataCapMb: z.number().int().positive().nullable(),
+  active: z.boolean(),
+  sortOrder: z.number().int(),
+  voucherStockTarget: z.number().int().min(0).max(100_000),
 });
+// Defaults only when creating. Updates change just the fields sent: with defaults, a partial
+// update would reset every field it left out.
+const createPlanBody = planFields.extend({
+  description: planFields.shape.description.default(''),
+  dataCapMb: planFields.shape.dataCapMb.default(null),
+  active: planFields.shape.active.default(true),
+  sortOrder: planFields.shape.sortOrder.default(0),
+  voucherStockTarget: planFields.shape.voucherStockTarget.default(0),
+});
+const updatePlanBody = planFields.partial();
+
+const voucherListQuery = listQuery.extend({ planId: z.uuid().optional() });
+const addVouchersBody = z.object({ planId: z.uuid(), codes: z.string().min(1).max(1_000_000) });
 
 const iso = (d: Date | null) => d?.toISOString() ?? null;
 
@@ -51,7 +64,7 @@ function phoneSearchTerm(q: string): string {
   return digits;
 }
 
-export function adminRoutes(deps: Deps, sessions: SessionService): Router {
+export function adminRoutes(deps: Deps, voucherService: VoucherService): Router {
   const r = Router();
   const { db, config } = deps;
   const auth = adminAuth(config.ADMIN_JWT_SECRET, config.isProd);
@@ -99,10 +112,6 @@ export function adminRoutes(deps: Deps, sessions: SessionService): Router {
       .select({ status: orders.status, n: count() })
       .from(orders)
       .groupBy(orders.status);
-    const sessionCounts = await db
-      .select({ status: accessSessions.status, n: count() })
-      .from(accessSessions)
-      .groupBy(accessSessions.status);
 
     const localDay = sql<string>`to_char((${orders.paidAt} at time zone 'UTC') + interval '1 hour', 'YYYY-MM-DD')`;
     const daily = await db
@@ -125,7 +134,7 @@ export function adminRoutes(deps: Deps, sessions: SessionService): Router {
     });
 
     const oc = Object.fromEntries(statusCounts.map((s) => [s.status, s.n]));
-    const sc = Object.fromEntries(sessionCounts.map((s) => [s.status, s.n]));
+    const stock = await voucherService.stock();
     const body: AdminStats = {
       revenueKobo: {
         today: await revenueSince(lagosMidnight),
@@ -133,8 +142,10 @@ export function adminRoutes(deps: Deps, sessions: SessionService): Router {
         last30Days: await revenueSince(new Date(lagosMidnight.getTime() - 29 * day)),
       },
       orders: { pending: oc.pending ?? 0, success: oc.success ?? 0, failed: oc.failed ?? 0, flagged: oc.flagged ?? 0 },
-      activeSessions: sc.active ?? 0,
-      pendingProvisioning: sc.pending ?? 0,
+      ordersWaitingForVoucher: stock.reduce((n, s) => n + s.waitingOrders, 0),
+      lowVoucherStock: stock
+        .filter((s) => s.active && s.available < LOW_VOUCHER_STOCK)
+        .map(({ planId, planName, available }) => ({ planId, planName, available })),
       dailyRevenue,
     };
     res.json(body);
@@ -144,24 +155,34 @@ export function adminRoutes(deps: Deps, sessions: SessionService): Router {
     const q = listQuery.parse(req.query);
     const filters: SQL[] = [];
     if (q.status) filters.push(eq(orders.status, q.status as AdminOrder['status']));
-    if (q.q) filters.push(or(ilike(orders.reference, `%${q.q}%`), ilike(customers.phone, `%${phoneSearchTerm(q.q)}%`))!);
+    if (q.q) {
+      filters.push(
+        or(
+          ilike(orders.reference, `%${q.q}%`),
+          ilike(customers.phone, `%${phoneSearchTerm(q.q)}%`),
+          ilike(vouchers.code, `%${q.q}%`),
+        )!,
+      );
+    }
     const where = filters.length ? and(...filters) : undefined;
 
     const base = db
-      .select({ o: orders, phone: customers.phone, planName: plans.name })
+      .select({ o: orders, phone: customers.phone, planName: plans.name, voucherCode: vouchers.code })
       .from(orders)
       .innerJoin(customers, eq(customers.id, orders.customerId))
       .innerJoin(plans, eq(plans.id, orders.planId))
+      .leftJoin(vouchers, eq(vouchers.orderId, orders.id))
       .where(where);
     const rows = await base.orderBy(desc(orders.createdAt)).limit(q.pageSize).offset((q.page - 1) * q.pageSize);
     const [total] = await db
       .select({ n: count() })
       .from(orders)
       .innerJoin(customers, eq(customers.id, orders.customerId))
+      .leftJoin(vouchers, eq(vouchers.orderId, orders.id))
       .where(where);
 
     const body: Paginated<AdminOrder> = {
-      items: rows.map(({ o, phone, planName }) => ({
+      items: rows.map(({ o, phone, planName, voucherCode }) => ({
         id: o.id,
         reference: o.reference,
         status: o.status,
@@ -169,7 +190,7 @@ export function adminRoutes(deps: Deps, sessions: SessionService): Router {
         phone,
         email: o.email,
         planName,
-        deviceMac: o.deviceMac,
+        voucherCode,
         failureReason: o.failureReason,
         paidAt: iso(o.paidAt),
         createdAt: o.createdAt.toISOString(),
@@ -179,77 +200,6 @@ export function adminRoutes(deps: Deps, sessions: SessionService): Router {
       pageSize: q.pageSize,
     };
     res.json(body);
-  });
-
-  r.get('/sessions', async (req, res) => {
-    const q = listQuery.parse(req.query);
-    const filters: SQL[] = [];
-    if (q.status) filters.push(eq(accessSessions.status, q.status as AdminSession['status']));
-    if (q.q) {
-      filters.push(
-        or(
-          ilike(accessSessions.voucherCode, `%${q.q}%`),
-          ilike(customers.phone, `%${phoneSearchTerm(q.q)}%`),
-          ilike(orders.reference, `%${q.q}%`),
-        )!,
-      );
-    }
-    const where = filters.length ? and(...filters) : undefined;
-
-    const rows = await db
-      .select({ s: accessSessions, phone: customers.phone, reference: orders.reference })
-      .from(accessSessions)
-      .innerJoin(customers, eq(customers.id, accessSessions.customerId))
-      .innerJoin(orders, eq(orders.id, accessSessions.orderId))
-      .where(where)
-      .orderBy(desc(accessSessions.createdAt))
-      .limit(q.pageSize)
-      .offset((q.page - 1) * q.pageSize);
-    const [total] = await db
-      .select({ n: count() })
-      .from(accessSessions)
-      .innerJoin(customers, eq(customers.id, accessSessions.customerId))
-      .innerJoin(orders, eq(orders.id, accessSessions.orderId))
-      .where(where);
-
-    const body: Paginated<AdminSession> = {
-      items: rows.map(({ s, phone, reference }) => ({
-        id: s.id,
-        voucherCode: s.voucherCode,
-        status: s.status,
-        phone,
-        planName: s.planName,
-        orderReference: reference,
-        startsAt: iso(s.startsAt),
-        expiresAt: iso(s.expiresAt),
-        dataCapMb: s.dataCapMb,
-        bytesUsed: s.bytesUsed,
-        provisionAttempts: s.provisionAttempts,
-        lastError: s.lastError,
-        createdAt: s.createdAt.toISOString(),
-      })),
-      total: total?.n ?? 0,
-      page: q.page,
-      pageSize: q.pageSize,
-    };
-    res.json(body);
-  });
-
-  r.post('/sessions/:id/revoke', async (req, res) => {
-    try {
-      const s = await sessions.revoke(req.params.id);
-      if (!s) throw notFound('Session not found');
-      res.json({ status: s.status });
-    } catch (err) {
-      if (err instanceof HttpError) throw err;
-      throw new HttpError(502, `Controller error: ${(err as Error).message}`, 'controller_error');
-    }
-  });
-
-  r.post('/sessions/:id/retry', async (req, res) => {
-    const s = await sessions.retry(req.params.id);
-    if (!s) throw notFound('Session not found');
-    res.json({ status: s.status, lastError: s.lastError });
   });
 
   r.get('/customers', async (req, res) => {
@@ -265,10 +215,9 @@ export function adminRoutes(deps: Deps, sessions: SessionService): Router {
     // which would make "id" resolve to the inner table.
     const orderCount = sql<number>`(select count(*)::int from orders o where o.customer_id = customers.id and o.status = 'success')`;
     const spent = sql<number>`(select coalesce(sum(o.amount_kobo), 0)::int from orders o where o.customer_id = customers.id and o.status = 'success')`;
-    const active = sql<number>`(select count(*)::int from access_sessions s where s.customer_id = customers.id and s.status = 'active')`;
 
     const rows = await db
-      .select({ c: customers, orders: orderCount, spent, active })
+      .select({ c: customers, orders: orderCount, spent })
       .from(customers)
       .where(where)
       .orderBy(desc(customers.createdAt))
@@ -277,7 +226,7 @@ export function adminRoutes(deps: Deps, sessions: SessionService): Router {
     const [total] = await db.select({ n: count() }).from(customers).where(where);
 
     const body: Paginated<AdminCustomer> = {
-      items: rows.map(({ c, orders: n, spent: kobo, active: a }) => ({
+      items: rows.map(({ c, orders: n, spent: kobo }) => ({
         id: c.id,
         phone: c.phone,
         name: c.name,
@@ -285,7 +234,6 @@ export function adminRoutes(deps: Deps, sessions: SessionService): Router {
         hasPassword: c.passwordHash !== null,
         orders: n,
         spentKobo: kobo,
-        activeSessions: a,
         createdAt: c.createdAt.toISOString(),
       })),
       total: total?.n ?? 0,
@@ -298,7 +246,7 @@ export function adminRoutes(deps: Deps, sessions: SessionService): Router {
   // Fallback for customers who can't use the emailed reset link (no email on file, or no access to it).
   // The admin reads this one-time password to them; they can change it from their account page.
   r.post('/customers/:id/reset-password', async (req, res) => {
-    const temporaryPassword = generateVoucherCode(10);
+    const temporaryPassword = generateCode(10);
     const [c] = await db
       .update(customers)
       .set({ passwordHash: await hashPassword(temporaryPassword) })
@@ -309,51 +257,132 @@ export function adminRoutes(deps: Deps, sessions: SessionService): Router {
     res.json({ temporaryPassword });
   });
 
-  const toPlan = (p: typeof plans.$inferSelect): Plan => ({
+  const toPlan = (p: typeof plans.$inferSelect, available: Map<string, number>): Plan => ({
     ...p,
+    vouchersAvailable: available.get(p.id) ?? 0,
+    soldOut: !available.get(p.id),
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString(),
   });
 
   r.get('/plans', async (_req, res) => {
     const rows = await db.select().from(plans).orderBy(asc(plans.sortOrder), asc(plans.priceKobo));
-    res.json(rows.map(toPlan));
+    const available = await voucherService.availableByPlan();
+    res.json(rows.map((p) => toPlan(p, available)));
   });
 
   r.post('/plans', async (req, res) => {
-    const body = planBody.parse(req.body);
+    const body = createPlanBody.parse(req.body);
     const [p] = await db.insert(plans).values(body).returning();
-    res.status(201).json(toPlan(p!));
+    res.status(201).json(toPlan(p!, new Map()));
   });
 
   // Plans are never deleted, because past orders reference them. Set active=false instead.
   r.patch('/plans/:id', async (req, res) => {
-    const body = planBody.partial().parse(req.body);
+    const body = updatePlanBody.parse(req.body);
     const [p] = await db.update(plans).set(body).where(eq(plans.id, req.params.id)).returning();
     if (!p) throw notFound('Plan not found');
-    res.json(toPlan(p));
+    res.json(toPlan(p, await voucherService.availableByPlan()));
   });
 
-  r.get('/network', async (_req, res) => {
-    const devices = await db.select().from(networkDevices).orderBy(asc(networkDevices.name));
-    let active: Awaited<ReturnType<typeof deps.network.listActive>> = [];
-    let activeError: string | null = null;
-    try {
-      active = await deps.network.listActive();
-    } catch (err) {
-      activeError = (err as Error).message;
-    }
-    const views: NetworkDeviceView[] = devices.map((d) => ({
-      id: d.id,
-      name: d.name,
-      driver: d.driver,
-      status: d.status,
-      identity: d.identity,
-      lastSeenAt: iso(d.lastSeenAt),
-      lastError: d.lastError,
-    }));
-    res.json({ devices: views, active, activeError });
+  // ---------- vouchers ----------
+
+  r.get('/vouchers/stock', async (_req, res) => {
+    res.json(await voucherService.stock());
   });
+
+  r.get('/vouchers/batches', async (_req, res) => {
+    res.json(await voucherService.batches());
+  });
+
+  // Tops every plan up to its stock target now, instead of waiting for the monthly run.
+  r.post('/vouchers/batches', async (req, res) => {
+    const batch = await voucherService.generate();
+    deps.logger.info({ batch, admin: req.admin?.email }, 'voucher batch requested');
+    res.status(batch ? 201 : 200).json({ batch });
+  });
+
+  r.get('/vouchers/batches/:id/export', async (req, res) => {
+    const id = z.uuid().safeParse(req.params.id).data;
+    const format = req.query.format === 'csv' ? 'csv' : 'rsc';
+    const rows = id ? await voucherService.batchCodes([id]) : [];
+    if (!rows.length) throw notFound('Batch not found');
+    const name = `yourwifi-vouchers-${id!.slice(0, 8)}.${format}`;
+    res.attachment(name).type('text/plain');
+    res.send(format === 'csv' ? toCsv(rows) : toRouterOsScript(rows, { generatedAt: deps.now() }));
+  });
+
+  // After importing a downloaded batch on the router: its codes go on sale.
+  r.post('/vouchers/batches/:id/ready', async (req, res) => {
+    const id = z.uuid().safeParse(req.params.id).data;
+    if (!id || !(await voucherService.markReady(id, req.admin!.email))) {
+      throw notFound('No batch waiting for the router with that id');
+    }
+    res.sendStatus(204);
+  });
+
+  r.get('/vouchers', async (req, res) => {
+    const q = voucherListQuery.parse(req.query);
+    const filters: SQL[] = [];
+    if (q.planId) filters.push(eq(vouchers.planId, q.planId));
+    if (q.status === 'available') filters.push(isNull(vouchers.orderId));
+    if (q.status === 'used') filters.push(isNotNull(vouchers.orderId));
+    if (q.q) filters.push(or(ilike(vouchers.code, `%${q.q}%`), ilike(orders.reference, `%${q.q}%`))!);
+    const where = filters.length ? and(...filters) : undefined;
+
+    const rows = await db
+      .select({ v: vouchers, planName: plans.name, reference: orders.reference, phone: customers.phone })
+      .from(vouchers)
+      .innerJoin(plans, eq(plans.id, vouchers.planId))
+      .leftJoin(orders, eq(orders.id, vouchers.orderId))
+      .leftJoin(customers, eq(customers.id, orders.customerId))
+      .where(where)
+      .orderBy(desc(vouchers.assignedAt), desc(vouchers.createdAt))
+      .limit(q.pageSize)
+      .offset((q.page - 1) * q.pageSize);
+    const [total] = await db
+      .select({ n: count() })
+      .from(vouchers)
+      .leftJoin(orders, eq(orders.id, vouchers.orderId))
+      .where(where);
+
+    const body: Paginated<AdminVoucher> = {
+      items: rows.map(({ v, planName, reference, phone }) => ({
+        id: v.id,
+        code: v.code,
+        planId: v.planId,
+        planName,
+        status: v.orderId ? 'used' : 'available',
+        orderReference: reference,
+        phone,
+        assignedAt: iso(v.assignedAt),
+        createdAt: v.createdAt.toISOString(),
+      })),
+      total: total?.n ?? 0,
+      page: q.page,
+      pageSize: q.pageSize,
+    };
+    res.json(body);
+  });
+
+  r.post('/vouchers', async (req, res) => {
+    const body = addVouchersBody.parse(req.body);
+    const [plan] = await db.select({ id: plans.id }).from(plans).where(eq(plans.id, body.planId));
+    if (!plan) throw notFound('Plan not found');
+    const result = await voucherService.add(body.planId, body.codes);
+    deps.logger.info({ planId: body.planId, added: result.added, admin: req.admin?.email }, 'vouchers added');
+    res.status(201).json(result);
+  });
+
+  // Only unused codes can be deleted: a given code is part of a customer's purchase.
+  r.delete('/vouchers/:id', async (req, res) => {
+    const [v] = await db.select().from(vouchers).where(eq(vouchers.id, String(req.params.id)));
+    if (!v) throw notFound('Voucher not found');
+    if (v.orderId) throw badRequest("This code was already given to a customer, so it can't be deleted");
+    await db.delete(vouchers).where(and(eq(vouchers.id, v.id), isNull(vouchers.orderId)));
+    res.sendStatus(204);
+  });
+
 
   return r;
 }

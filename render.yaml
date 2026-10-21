@@ -1,0 +1,49 @@
+# Render Blueprint: one free web service running the API only. The portal and admin are on
+# Netlify (netlify.toml), which forwards /api/* here. The database is Supabase free Postgres.
+# See "Hosting without a VPS" in infra/README.md.
+services:
+  - type: web
+    name: yourwifi
+    runtime: node
+    plan: free
+    region: frankfurt
+    # Dev dependencies (Vite, tsup) are needed to build, even though NODE_ENV is production.
+    buildCommand: npm ci --include=dev && npm run build -w @yourwifi/api
+    startCommand: cd apps/api && node dist/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # TESTING values. Production refuses Paystack test keys and logged-only email, so at
+      # go-live change NODE_ENV to production and MAIL_DRIVER to smtp, and set a live
+      # PAYSTACK_SECRET_KEY plus SMTP_URL and MAIL_FROM.
+      - key: NODE_ENV
+        value: development
+      - key: MAIL_DRIVER
+        value: mock
+      - key: TRUST_PROXY
+        value: "true"
+      - key: PAYMENT_DRIVER
+        value: paystack
+      # Generate the month's voucher codes on the Starlink renewal day.
+      - key: VOUCHER_GENERATION_DAY
+        value: "2"
+      # Secrets and site-specific values: set these in the Render dashboard.
+      - key: DATABASE_URL
+        sync: false
+      # Where customers see the portal: Paystack returns there, and reset links point there.
+      - key: PUBLIC_PORTAL_URL
+        value: https://wifisystem.netlify.app
+      - key: CORS_ORIGINS
+        value: https://wifisystem.netlify.app
+      - key: ADMIN_JWT_SECRET
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      # Lets the router collect generated voucher batches (infra/mikrotik/yourwifi-voucher-sync.rsc).
+      - key: ROUTER_TOKEN
+        sync: false
+      - key: SMTP_URL
+        sync: false
+      - key: MAIL_FROM
+        sync: false

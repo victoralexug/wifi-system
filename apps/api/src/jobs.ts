@@ -1,35 +1,9 @@
-import { networkDevices } from './db/schema';
 import type { Deps } from './deps';
 import type { OrderService } from './orders/orders.service';
-import type { SessionService } from './sessions/sessions.service';
+import type { VoucherService } from './vouchers/vouchers.service';
 
-export async function checkNetworkHealth(deps: Deps) {
-  const result = await deps.network.healthCheck();
-  const now = deps.now();
-  await deps.db
-    .insert(networkDevices)
-    .values({
-      name: deps.config.NETWORK_DEVICE_NAME,
-      driver: deps.network.driver,
-      status: result.ok ? 'online' : 'offline',
-      identity: result.identity ?? null,
-      lastSeenAt: result.ok ? now : null,
-      lastError: result.ok ? null : (result.detail ?? 'unreachable'),
-    })
-    .onConflictDoUpdate({
-      target: networkDevices.name,
-      set: {
-        driver: deps.network.driver,
-        status: result.ok ? 'online' : 'offline',
-        ...(result.ok ? { identity: result.identity ?? null, lastSeenAt: now, lastError: null } : {}),
-        ...(!result.ok ? { lastError: result.detail ?? 'unreachable' } : {}),
-      },
-    });
-  return result;
-}
-
-/** Background loops. Each tick is guarded so a slow router never causes overlapping runs. */
-export function startJobs(deps: Deps, sessions: SessionService, orders: OrderService) {
+/** Background loops. Each tick is guarded so a slow run never overlaps the next. */
+export function startJobs(deps: Deps, orders: OrderService, vouchers: VoucherService) {
   const { logger, config } = deps;
   const timers: NodeJS.Timeout[] = [];
 
@@ -50,15 +24,14 @@ export function startJobs(deps: Deps, sessions: SessionService, orders: OrderSer
     void tick();
   };
 
-  every('sessions', config.JOB_INTERVAL_SECONDS, async () => {
-    await sessions.retryPending();
-    // Usage first, so a bundle that ran out is marked exhausted rather than expired.
-    // A failed usage read (router offline) must not stop time-based expiry.
-    await sessions.syncUsage().catch((err) => logger.warn({ err: (err as Error).message }, 'usage sync failed'));
-    await sessions.expireDue();
+  // Monthly voucher batch. Checked hourly, so a server that was asleep on the day catches up.
+  every('voucher-generation', 3600, () => vouchers.generateScheduled());
+
+  // Catches payments whose webhook never arrived, and paid orders still waiting for a voucher.
+  every('reconcile', config.RECONCILE_INTERVAL_SECONDS, async () => {
+    await orders.reconcilePending();
+    await vouchers.assignWaiting();
   });
-  every('reconcile', Math.max(config.JOB_INTERVAL_SECONDS * 4, 60), () => orders.reconcilePending());
-  every('health', config.HEALTH_INTERVAL_SECONDS, () => checkNetworkHealth(deps));
 
   return () => timers.forEach(clearInterval);
 }

@@ -31,14 +31,6 @@ const envSchema = z.object({
   // Paystack requires an email; older accounts without one get <phone>@<this domain>.
   PLACEHOLDER_EMAIL_DOMAIN: z.string().default('customers.yourwifi.ng'),
 
-  NETWORK_DRIVER: z.enum(['mock', 'mikrotik']).default('mock'),
-  NETWORK_DEVICE_NAME: z.string().default('primary'),
-  MIKROTIK_URL: z.url().optional(),
-  MIKROTIK_USER: z.string().optional(),
-  MIKROTIK_PASSWORD: z.string().optional(),
-  MIKROTIK_INSECURE_TLS: bool.default(false),
-  MIKROTIK_HOTSPOT_SERVER: z.string().default('all'),
-
   ADMIN_JWT_SECRET: z.string().min(32).optional(),
 
   // mock = log emails instead of sending them (dev and tests). smtp = send through SMTP_URL.
@@ -47,9 +39,13 @@ const envSchema = z.object({
   SMTP_URL: z.string().optional(),
   MAIL_FROM: z.string().default('YourWiFi <no-reply@yourwifi.ng>'),
 
-  JOB_INTERVAL_SECONDS: z.coerce.number().int().positive().default(30),
-  HEALTH_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
-  MAX_PROVISION_ATTEMPTS: z.coerce.number().int().positive().default(40),
+  // How often pending payments are re-checked with Paystack, in case a webhook never arrived.
+  RECONCILE_INTERVAL_SECONDS: z.coerce.number().int().positive().default(120),
+
+  // Day of the month (Lagos time) when new voucher codes are generated, topping each plan up to its stock target.
+  VOUCHER_GENERATION_DAY: z.coerce.number().int().min(1).max(28).default(1),
+  // Lets the router collect generated voucher batches (infra/mikrotik/). Unset = admins deliver them by hand.
+  ROUTER_TOKEN: z.string().min(32).optional(),
 });
 
 export type Config = ReturnType<typeof loadConfig>;
@@ -67,9 +63,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const isProd = c.NODE_ENV === 'production';
 
   if (isProd) {
-    // Simulated payments or simulated network access must never reach real customers.
+    // Simulated payments must never reach real customers.
     if (c.PAYMENT_DRIVER === 'mock') problems.push('PAYMENT_DRIVER=mock is not allowed in production');
-    if (c.NETWORK_DRIVER === 'mock') problems.push('NETWORK_DRIVER=mock is not allowed in production');
     // Password reset links have to actually reach customers.
     if (c.MAIL_DRIVER === 'mock') problems.push('MAIL_DRIVER=mock is not allowed in production');
     if (!c.DATABASE_URL) problems.push('DATABASE_URL is required in production');
@@ -82,9 +77,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     problems.push('PAYSTACK_SECRET_KEY is required when PAYMENT_DRIVER=paystack');
   } else if (c.PAYMENT_DRIVER === 'paystack' && !/^sk_(test|live)_\w+$/.test(c.PAYSTACK_SECRET_KEY!)) {
     problems.push('PAYSTACK_SECRET_KEY must be a Paystack secret key (sk_test_… or sk_live_…), not the public pk_ key');
-  }
-  if (c.NETWORK_DRIVER === 'mikrotik' && !(c.MIKROTIK_URL && c.MIKROTIK_USER && c.MIKROTIK_PASSWORD)) {
-    problems.push('MIKROTIK_URL, MIKROTIK_USER and MIKROTIK_PASSWORD are required when NETWORK_DRIVER=mikrotik');
   }
   if (c.MAIL_DRIVER === 'smtp' && !c.SMTP_URL) {
     problems.push('SMTP_URL is required when MAIL_DRIVER=smtp');

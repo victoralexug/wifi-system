@@ -1,0 +1,36 @@
+# Netlify serves the customer portal (/) and the admin dashboard (/admin/), and forwards /api/*
+# to the API on Render. Browsers only ever talk to this one host, so sign-in cookies stay
+# first-party and the hotspot's walled garden needs just this host.
+# See "Hosting without a VPS" in infra/README.md.
+
+[build]
+  command = "npm run build:web"
+  publish = "apps/portal/dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Replace YOUR-API.onrender.com with the Render service's host. Must stay first.
+[[redirects]]
+  from = "/api/*"
+  to = "https://YOUR-API.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+# Single-page apps: unknown paths load the app, which shows the right page.
+[[redirects]]
+  from = "/admin/*"
+  to = "/admin/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "no-referrer"

@@ -59,7 +59,6 @@ export function CustomersPage() {
               <th>Name</th>
               <th className="num">Plans bought</th>
               <th className="num">Total spent</th>
-              <th className="num">Active</th>
               <th>Joined</th>
               <th />
             </tr>
@@ -74,7 +73,6 @@ export function CustomersPage() {
                 <td>{c.name ?? '—'}</td>
                 <td className="num">{c.orders}</td>
                 <td className="num">{formatNaira(c.spentKobo)}</td>
-                <td className="num">{c.activeSessions}</td>
                 <td>{fmtTime(c.createdAt)}</td>
                 <td className="actions">
                   {issued?.id === c.id ? (

@@ -1,17 +1,14 @@
 import type { CreateOrderResponse, OrderStatusResponse } from '@yourwifi/shared';
 import { and, eq, gte, inArray, lte } from 'drizzle-orm';
-import { accessSessions, customers, orders, plans } from '../db/schema';
+import { customers, orders, plans, vouchers } from '../db/schema';
 import type { Deps } from '../deps';
 import { badRequest, HttpError, notFound } from '../lib/errors';
-import { generatePaymentReference, normalizeMac } from '../lib/ids';
-import type { SessionService } from '../sessions/sessions.service';
-import { toSessionView } from '../sessions/views';
+import { generatePaymentReference } from '../lib/ids';
+import type { VoucherService } from '../vouchers/vouchers.service';
 
 export interface CreateOrderInput {
   planId: string;
   customerId: string;
-  deviceMac?: string;
-  deviceIp?: string;
 }
 
 export type ConfirmResult =
@@ -25,13 +22,16 @@ export type ConfirmResult =
 export class OrderService {
   constructor(
     private readonly deps: Deps,
-    private readonly sessions: SessionService,
+    private readonly vouchers: VoucherService,
   ) {}
 
   async create(input: CreateOrderInput): Promise<CreateOrderResponse> {
     const { db, payments, config, logger } = this.deps;
     const [plan] = await db.select().from(plans).where(and(eq(plans.id, input.planId), eq(plans.active, true)));
     if (!plan) throw badRequest('That plan is not available');
+    if (!(await this.vouchers.availableByPlan()).get(plan.id)) {
+      throw new HttpError(409, 'That plan is sold out right now. Please choose another one.', 'sold_out');
+    }
 
     const [customer] = await db.select().from(customers).where(eq(customers.id, input.customerId));
     if (!customer) throw new HttpError(401, 'Please sign in to continue', 'unauthenticated');
@@ -46,8 +46,6 @@ export class OrderService {
         planId: plan.id,
         amountKobo: plan.priceKobo,
         email,
-        deviceMac: normalizeMac(input.deviceMac),
-        deviceIp: input.deviceIp ?? null,
       })
       .returning();
 
@@ -71,11 +69,12 @@ export class OrderService {
   }
 
   /**
-   * Main path from payment to access. Called from webhooks, the "check my payment" button and
-   * the reconciliation job. The provider's server-side verify is the only source of truth, and
-   * the conditional status update means concurrent calls create at most one session.
+   * The only path to a paid order, and so to a voucher. Called from webhooks, the "check my
+   * payment" button and the reconciliation job. The provider's server-side verify is the only
+   * source of truth, and the conditional status update means concurrent calls mark an order paid
+   * (and give it a voucher) exactly once.
    */
-  async confirmPayment(reference: string, opts: { awaitProvision?: boolean } = {}): Promise<ConfirmResult> {
+  async confirmPayment(reference: string): Promise<ConfirmResult> {
     const { db, payments, logger } = this.deps;
     const [order] = await db.select().from(orders).where(eq(orders.reference, reference));
     if (!order) return 'not_found';
@@ -108,23 +107,19 @@ export class OrderService {
       return 'flagged';
     }
 
-    const session = await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
       const [won] = await tx
         .update(orders)
         .set({ status: 'success', paidAt: verified.paidAt ?? this.deps.now(), failureReason: null, providerPayload: verified.raw })
         // 'failed' is included because Paystack lets a customer retry on the same reference.
         .where(and(eq(orders.id, order.id), inArray(orders.status, ['pending', 'failed'])))
         .returning();
-      if (!won) return null;
-      const [plan] = await tx.select().from(plans).where(eq(plans.id, won.planId));
-      return this.sessions.createForOrder(tx, won, plan!);
+      return won ? { voucherCode: await this.vouchers.assign(tx, won) } : null;
     });
-
-    if (!session) return 'already_paid';
-    logger.info({ reference, sessionId: session.id }, 'payment confirmed');
-    const provisioning = this.sessions.provision(session.id);
-    if (opts.awaitProvision) await provisioning;
-    else provisioning.catch((err) => logger.error({ err }, 'background provisioning crashed'));
+    if (!result) return 'already_paid';
+    if (result.voucherCode) logger.info({ reference }, 'payment confirmed; voucher given');
+    // The plan sold out between checkout and payment. The order gets a code as soon as more are loaded.
+    else logger.warn({ reference }, 'payment confirmed, but the plan has no vouchers left; order is waiting');
     return 'paid';
   }
 
@@ -132,18 +127,19 @@ export class OrderService {
   async getStatus(reference: string, customerId?: string): Promise<OrderStatusResponse> {
     const { db } = this.deps;
     const [row] = await db
-      .select({ order: orders, planName: plans.name })
+      .select({ order: orders, planName: plans.name, voucherCode: vouchers.code })
       .from(orders)
       .innerJoin(plans, eq(plans.id, orders.planId))
+      .leftJoin(vouchers, eq(vouchers.orderId, orders.id))
       .where(eq(orders.reference, reference));
     if (!row || (customerId && row.order.customerId !== customerId)) throw notFound('Order not found');
-    const [session] = await db.select().from(accessSessions).where(eq(accessSessions.orderId, row.order.id));
     return {
       reference,
       status: row.order.status,
       amountKobo: row.order.amountKobo,
       planName: row.planName,
-      session: session ? toSessionView(session) : null,
+      paidAt: row.order.paidAt?.toISOString() ?? null,
+      voucherCode: row.voucherCode,
     };
   }
 

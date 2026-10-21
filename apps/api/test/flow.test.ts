@@ -1,13 +1,13 @@
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { accessSessions, orders } from '../src/db/schema';
+import { orders } from '../src/db/schema';
 import type { MockPaymentProvider } from '../src/payments/mock';
 import { createTestContext, signUp } from './helpers';
 
 type Ctx = Awaited<ReturnType<typeof createTestContext>>;
 
-describe('purchase → access → expiry', () => {
+describe('purchase → payment confirmation', () => {
   let ctx: Ctx;
   let customer: Awaited<ReturnType<typeof signUp>>;
   beforeEach(async () => {
@@ -22,6 +22,8 @@ describe('purchase → access → expiry', () => {
   };
   const settle = (reference: string, outcome: 'success' | 'failed' = 'success') =>
     request(ctx.app).post(`/api/dev/mock-pay/${reference}`).send({ outcome });
+  const statusOf = async (reference: string) =>
+    (await ctx.deps.db.select().from(orders).where(eq(orders.reference, reference)))[0]!.status;
 
   it('lists active plans in order', async () => {
     const res = await request(ctx.app).get('/api/plans').expect(200);
@@ -32,93 +34,46 @@ describe('purchase → access → expiry', () => {
     await request(ctx.app).post('/api/orders').send({ planId: ctx.plan.id }).expect(401);
   });
 
-  it('grants access only after verified payment', async () => {
+  it('marks an order paid only after the payment is verified', async () => {
     const { reference, authorizationUrl } = await createOrder();
     expect(authorizationUrl).toContain('/mock-pay?reference=');
 
     const before = await customer.get(`/api/orders/${reference}`).expect(200);
-    expect(before.body.status).toBe('pending');
-    expect(before.body.session).toBeNull();
-    expect(ctx.network.users.size).toBe(0);
+    expect(before.body).toMatchObject({ status: 'pending', paidAt: null });
 
     const paid = await settle(reference).expect(200);
-    expect(paid.body.status).toBe('success');
-    expect(paid.body.session.status).toBe('active');
-    const code = paid.body.session.voucherCode as string;
-    expect(code).toMatch(/^[2-9A-Z]{8}$/);
-    expect(ctx.network.users.get(code)).toMatchObject({ durationMinutes: 60, rateLimit: '5M/5M' });
-    expect(new Date(paid.body.session.expiresAt).getTime() - ctx.clock.now().getTime()).toBe(60 * 60_000);
+    expect(paid.body).toMatchObject({ reference, status: 'success', planName: '1 Hour', amountKobo: 10_000 });
+    expect(paid.body.paidAt).not.toBeNull();
   });
 
-  it('a failed payment never creates a session', async () => {
+  it('records a declined payment as failed', async () => {
     const { reference } = await createOrder();
     const res = await settle(reference, 'failed').expect(200);
-    expect(res.body.status).toBe('failed');
-    expect(res.body.session).toBeNull();
-    expect(ctx.network.users.size).toBe(0);
+    expect(res.body).toMatchObject({ status: 'failed', paidAt: null });
   });
 
-  it('is idempotent under concurrent confirmations', async () => {
+  it('confirms a payment exactly once under concurrent confirmations', async () => {
     const { reference } = await createOrder();
     (ctx.payments as MockPaymentProvider).settle(reference, 'success');
-    const results = await Promise.all(
-      Array.from({ length: 5 }, () => ctx.orders.confirmPayment(reference, { awaitProvision: true })),
-    );
+    const results = await Promise.all(Array.from({ length: 5 }, () => ctx.orders.confirmPayment(reference)));
     expect(results.filter((r) => r === 'paid')).toHaveLength(1);
-    const sessions = await ctx.deps.db.select().from(accessSessions);
-    expect(sessions).toHaveLength(1);
+    expect(results.filter((r) => r === 'already_paid')).toHaveLength(4);
   });
 
-  it('flags amount mismatches instead of granting access', async () => {
+  it('flags amount mismatches instead of marking the order paid', async () => {
     const { reference } = await createOrder();
     (ctx.payments as MockPaymentProvider).settle(reference, 'success', 100);
     expect(await ctx.orders.confirmPayment(reference)).toBe('flagged');
-    const [order] = await ctx.deps.db.select().from(orders).where(eq(orders.reference, reference));
-    expect(order!.status).toBe('flagged');
-    expect(await ctx.deps.db.select().from(accessSessions)).toHaveLength(0);
-  });
-
-  it('retries provisioning when the router is unreachable', async () => {
-    const { reference } = await createOrder();
-    ctx.network.failNext = 1;
-    const paid = await settle(reference).expect(200);
-    expect(paid.body.session.status).toBe('pending');
-
-    await ctx.sessions.retryPending();
-    const after = await customer.get(`/api/orders/${reference}`).expect(200);
-    expect(after.body.session.status).toBe('active');
-  });
-
-  it('expires sessions on wall-clock time and revokes them on the router', async () => {
-    const { reference } = await createOrder();
-    const paid = await settle(reference).expect(200);
-    const code = paid.body.session.voucherCode as string;
-
-    ctx.clock.advance(59 * 60_000);
-    expect(await ctx.sessions.expireDue()).toBe(0);
-    ctx.clock.advance(2 * 60_000);
-    expect(await ctx.sessions.expireDue()).toBe(1);
-
-    expect(ctx.network.users.has(code)).toBe(false);
-    const lookup = await request(ctx.app).post('/api/sessions/lookup').send({ code: code.toLowerCase() }).expect(200);
-    expect(lookup.body.status).toBe('expired');
-  });
-
-  it('keeps a session active if revoking on the router fails, then retries', async () => {
-    const { reference } = await createOrder();
-    await settle(reference).expect(200);
-    ctx.clock.advance(61 * 60_000);
-    ctx.network.failNext = 1;
-    expect(await ctx.sessions.expireDue()).toBe(0);
-    expect(await ctx.sessions.expireDue()).toBe(1);
+    expect(await statusOf(reference)).toBe('flagged');
   });
 
   it('"check my payment" picks up payments whose webhook never arrived', async () => {
     const { reference } = await createOrder();
     (ctx.payments as MockPaymentProvider).settle(reference, 'success');
     const res = await customer.post(`/api/orders/${reference}/verify`).expect(200);
-    expect(res.body.session.status).toBe('active');
+    expect(res.body.status).toBe('success');
   });
+
 
   it('reconciliation job confirms stale pending orders', async () => {
     const { reference } = await createOrder();
@@ -130,7 +85,6 @@ describe('purchase → access → expiry', () => {
       .where(eq(orders.reference, reference));
     ctx.deps.now = () => new Date();
     await ctx.orders.reconcilePending();
-    const [order] = await ctx.deps.db.select().from(orders).where(eq(orders.reference, reference));
-    expect(order!.status).toBe('success');
+    expect(await statusOf(reference)).toBe('success');
   });
 });
