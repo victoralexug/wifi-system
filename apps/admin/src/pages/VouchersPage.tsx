@@ -42,8 +42,9 @@ export function VouchersPage() {
         <h1>Vouchers</h1>
         <p className="muted">
           When a customer pays for a plan, they're given the next unused code for it. Codes come from two places: ones
-          you upload (exported from your Wi-Fi system), and batches this system generates each month to top every plan
-          up to its stock target (set on the Plans page). Generated codes go on sale once they're loaded on the router.
+          you upload (exported from your Wi-Fi system), and batches this system generates each month so each plan has its
+          monthly limit on sale (set on the Plans page), and no more than that sells per month. Generated codes go on sale
+          once they're loaded on the router.
           A plan with no codes on sale shows as sold out.
         </p>
       </div>
@@ -57,7 +58,7 @@ export function VouchersPage() {
                 <th>Plan</th>
                 <th className="num">On sale</th>
                 <th className="num">Waiting for router</th>
-                <th className="num">Stock target</th>
+                <th className="num">Monthly limit</th>
                 <th className="num">Given out</th>
                 <th className="num">Paid orders waiting</th>
               </tr>
@@ -162,7 +163,11 @@ function Batches({ onChanged }: { onChanged: () => void }) {
   const generate = useMutation({
     mutationFn: api.generateBatch,
     onSuccess: (r) => {
-      setNote(r.batch ? `Generated ${r.batch.codeCount} codes.` : 'Every plan is already at its stock target, so nothing was generated.');
+      setNote(
+        r.batch
+          ? `Generated ${r.batch.codeCount} codes.`
+          : "Nothing to generate: every plan already has its monthly limit on sale or sold this month.",
+      );
       onChanged();
     },
   });
@@ -186,7 +191,7 @@ function Batches({ onChanged }: { onChanged: () => void }) {
       {(batches.error || generate.error || ready.error) && (
         <p className="error">{batches.error?.message ?? generate.error?.message ?? ready.error?.message}</p>
       )}
-      {batches.data?.length === 0 && <p className="muted">No batches yet. Set stock targets on the Plans page, then generate one.</p>}
+      {batches.data?.length === 0 && <p className="muted">No batches yet. Set monthly limits on the Plans page, then generate one.</p>}
       {batches.data && batches.data.length > 0 && (
         <div className="table-wrap">
           <table className="table">

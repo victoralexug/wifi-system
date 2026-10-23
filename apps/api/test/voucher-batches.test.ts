@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { plans } from '../src/db/schema';
 import { createTestContext, signUp } from './helpers';
 
@@ -96,12 +97,41 @@ describe('generated voucher batches', () => {
     const late = await request(ctx.app).post(`/api/dev/mock-pay/${second}`).send({ outcome: 'success' }).expect(200);
     expect(late.body.voucherCode).toBeNull();
 
-    // The batch tops the plan up to 3 unused (the used code doesn't count), then the router loads it.
+    // The code sold this cycle counts against the 1 Hour plan's monthly 3, so it gets 2 (plus 2 for the bundle).
     const { batch } = (await admin.post('/api/admin/vouchers/batches').expect(201)).body;
-    expect(batch.codeCount).toBe(3 + 2);
+    expect(batch.codeCount).toBe(2 + 2);
     await admin.post(`/api/admin/vouchers/batches/${batch.id}/ready`).expect(204);
     const after = (await ctx.orders.getStatus(second)).voucherCode;
     expect(after).toMatch(/^[2-9A-Z]{8}$/);
+  });
+
+  it('never lets more than the target sell in one cycle, even with "Generate now"', async () => {
+    ctx = await createTestContext({ vouchersPerPlan: 0, env: { VOUCHER_GENERATION_DAY: '2' } });
+    await ctx.deps.db.update(plans).set({ voucherStockTarget: 0 });
+    await ctx.deps.db.update(plans).set({ voucherStockTarget: 2 }).where(eq(plans.id, ctx.plan.id));
+    const at = (iso: string) => {
+      ctx.deps.now = () => new Date(iso);
+    };
+    const sellAll = async () => {
+      for (const phone of ['08030000001', '08030000002']) {
+        const c = await signUp(ctx.app, phone);
+        const o = (await c.post('/api/orders').send({ planId: ctx.plan.id }).expect(201)).body;
+        await request(ctx.app).post(`/api/dev/mock-pay/${o.reference}`).send({ outcome: 'success' }).expect(200);
+      }
+    };
+
+    at('2026-11-02T08:00:00Z'); // cycle starts on the 2nd
+    const nov = (await ctx.vouchers.generateScheduled())!;
+    expect(nov.codeCount).toBe(2);
+    await ctx.vouchers.markReady(nov.id, 'router');
+    at('2026-11-10T08:00:00Z');
+    await sellAll(); // the month's 2 are gone
+    expect(await ctx.vouchers.generate()).toBeNull(); // mid-month top-up adds nothing
+
+    at('2026-12-01T22:59:00Z'); // still 1 Dec in Lagos: same cycle
+    expect(await ctx.vouchers.generate()).toBeNull();
+    at('2026-12-02T08:00:00Z'); // next cycle: back up to 2
+    expect((await ctx.vouchers.generateScheduled())?.codeCount).toBe(2);
   });
 
   it('makes one scheduled batch per month, from the configured day', async () => {

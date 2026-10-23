@@ -130,9 +130,12 @@ export function PlansPage() {
               <input type="number" {...field('sortOrder')} />
             </label>
             <label>
-              Keep this many voucher codes in stock
+              Sell at most this many per month
               <input type="number" min="0" step="1" {...field('voucherStockTarget')} />
-              <small className="muted">Each month new codes are generated to top up to this number. 0 = you upload codes yourself.</small>
+              <small className="muted">
+                On the monthly voucher day, codes are generated so this many are on sale, and no more sell until next month.
+                0 = you upload codes yourself.
+              </small>
             </label>
             <label className="check">
               <input type="checkbox" checked={draft.active} onChange={(e) => setDraft({ ...draft, active: e.target.checked })} />

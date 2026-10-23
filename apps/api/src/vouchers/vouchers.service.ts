@@ -1,5 +1,5 @@
 import type { AddVouchersResult, VoucherBatchView, VoucherStock } from '@yourwifi/shared';
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import { orders, plans, voucherBatches, vouchers } from '../db/schema';
 import type { Deps } from '../deps';
@@ -92,15 +92,22 @@ export class VoucherService {
    */
   async generate(opts: { period?: string } = {}): Promise<{ id: string; codeCount: number } | null> {
     const { db, logger } = this.deps;
-    const unused = await db
-      .select({ planId: vouchers.planId, n: count() })
-      .from(vouchers)
-      .where(isNull(vouchers.orderId))
-      .groupBy(vouchers.planId);
-    const have = new Map(unused.map((r) => [r.planId, r.n]));
+    const countBy = async (where: ReturnType<typeof and>) =>
+      new Map(
+        (await db.select({ planId: vouchers.planId, n: count() }).from(vouchers).where(where).groupBy(vouchers.planId)).map(
+          (r) => [r.planId, r.n],
+        ),
+      );
+    const unused = await countBy(isNull(vouchers.orderId));
+    // The target is also the most that can sell per cycle: codes already sold this cycle aren't
+    // replaced until the next one, so "Generate now" mid-month can't lift the monthly cap.
+    const soldThisCycle = await countBy(gte(vouchers.assignedAt, this.cycleStart()));
     const targets = await db.select().from(plans).where(eq(plans.active, true));
     const needs = targets
-      .map((p) => ({ planId: p.id, n: Math.max(0, p.voucherStockTarget - (have.get(p.id) ?? 0)) }))
+      .map((p) => ({
+        planId: p.id,
+        n: Math.max(0, p.voucherStockTarget - (unused.get(p.id) ?? 0) - (soldThisCycle.get(p.id) ?? 0)),
+      }))
       .filter((x) => x.n > 0);
     const total = needs.reduce((sum, x) => sum + x.n, 0);
     if (total === 0) return null;
@@ -138,6 +145,15 @@ export class VoucherService {
     const lagos = new Date(this.deps.now().getTime() + 3600_000); // UTC+1, no DST
     if (lagos.getUTCDate() < this.deps.config.VOUCHER_GENERATION_DAY) return null;
     return this.generate({ period: lagos.toISOString().slice(0, 7) });
+  }
+
+  /** Start of the current monthly cycle: the most recent generation day, 00:00 Lagos time. */
+  cycleStart(): Date {
+    const day = this.deps.config.VOUCHER_GENERATION_DAY;
+    const lagos = new Date(this.deps.now().getTime() + 3600_000);
+    const y = lagos.getUTCFullYear();
+    const m = lagos.getUTCMonth() - (lagos.getUTCDate() < day ? 1 : 0);
+    return new Date(Date.UTC(y, m, day) - 3600_000);
   }
 
   /** The batch's codes are now on the router: they can be sold, and waiting orders get them. */
