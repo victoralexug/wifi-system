@@ -7,3 +7,6 @@ coverage/
 .env.*
 !.env.example
 .DS_Store
+
+# Netlify environment variables to import by hand; holds secrets
+netlify.env
