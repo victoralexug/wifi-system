@@ -3,7 +3,7 @@ import { formatNaira } from '@yourwifi/shared';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { api, fmtTime } from '../api';
-import { Filters, Pager, StatusBadge, useDebounced } from '../components/ui';
+import { DataTable, Filters, Pager, StatusBadge, useDebounced } from '../components/ui';
 
 export function OrdersPage() {
   const [params, setParams] = useSearchParams();
@@ -35,37 +35,35 @@ export function OrdersPage() {
         placeholder="Search reference, phone or voucher"
       />
       {data.error && <p className="error">{data.error.message}</p>}
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Created</th>
-              <th>Reference</th>
-              <th>Phone</th>
-              <th>Plan</th>
-              <th>Voucher</th>
-              <th className="num">Amount</th>
-              <th>Status</th>
+      <DataTable>
+        <thead>
+          <tr>
+            <th>Created</th>
+            <th>Reference</th>
+            <th>Phone</th>
+            <th>Plan</th>
+            <th>Voucher</th>
+            <th className="num">Amount</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.data?.items.map((o) => (
+            <tr key={o.id}>
+              <td>{fmtTime(o.createdAt)}</td>
+              <td className="mono">{o.reference}</td>
+              <td>{o.phone}</td>
+              <td>{o.planName}</td>
+              <td className="mono">{o.voucherCode ?? (o.status === 'success' ? <StatusBadge status="waiting" /> : '—')}</td>
+              <td className="num">{formatNaira(o.amountKobo)}</td>
+              <td>
+                <StatusBadge status={o.status} />
+                {o.failureReason && <div className="muted small">{o.failureReason}</div>}
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {data.data?.items.map((o) => (
-              <tr key={o.id}>
-                <td>{fmtTime(o.createdAt)}</td>
-                <td className="mono">{o.reference}</td>
-                <td>{o.phone}</td>
-                <td>{o.planName}</td>
-                <td className="mono">{o.voucherCode ?? (o.status === 'success' ? <StatusBadge status="waiting" /> : '—')}</td>
-                <td className="num">{formatNaira(o.amountKobo)}</td>
-                <td>
-                  <StatusBadge status={o.status} />
-                  {o.failureReason && <div className="muted small">{o.failureReason}</div>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </DataTable>
       {data.data && <Pager {...data.data} onPage={(p) => set({ page: String(p) })} />}
     </div>
   );

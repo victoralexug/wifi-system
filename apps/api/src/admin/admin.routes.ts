@@ -146,7 +146,7 @@ export function adminRoutes(deps: Deps, voucherService: VoucherService): Router 
       ordersWaitingForVoucher: stock.reduce((n, s) => n + s.waitingOrders, 0),
       lowVoucherStock: stock
         .filter((s) => s.active && s.available < LOW_VOUCHER_STOCK)
-        .map(({ planId, planName, available }) => ({ planId, planName, available })),
+        .map(({ planId, planName, available, waitingForRouter }) => ({ planId, planName, available, waitingForRouter })),
       dailyRevenue,
     };
     res.json(body);

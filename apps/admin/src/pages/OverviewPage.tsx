@@ -11,7 +11,9 @@ export function OverviewPage() {
   if (stats.isPending) return <p className="muted">Loading…</p>;
   if (stats.error) return <p className="error">{stats.error.message}</p>;
   const s = stats.data;
-  const soldOut = s.lowVoucherStock.filter((p) => p.available === 0);
+  // Codes made but not loaded on the router yet: not sold out, just one step away from sale.
+  const notLoaded = s.lowVoucherStock.filter((p) => p.available === 0 && p.waitingForRouter > 0);
+  const soldOut = s.lowVoucherStock.filter((p) => p.available === 0 && p.waitingForRouter === 0);
   const low = s.lowVoucherStock.filter((p) => p.available > 0);
 
   return (
@@ -25,6 +27,13 @@ export function OverviewPage() {
               <StatusBadge status="waiting" /> {s.ordersWaitingForVoucher} paid order{s.ordersWaitingForVoucher === 1 ? ' is' : 's are'}{' '}
               waiting for a voucher code because the plan ran out. Add codes and they're given out straight away.{' '}
               <Link to="/vouchers">Add codes</Link>
+            </p>
+          )}
+          {notLoaded.length > 0 && (
+            <p>
+              <StatusBadge status="waiting_router" /> Codes are ready but not on sale until they're loaded on the router:{' '}
+              <strong>{notLoaded.map((p) => `${p.planName} (${p.waitingForRouter})`).join(', ')}</strong>.{' '}
+              <Link to="/vouchers">Load them</Link>
             </p>
           )}
           {soldOut.length > 0 && (
@@ -54,9 +63,7 @@ export function OverviewPage() {
         <Tile label="Last 30 days" value={formatNaira(s.revenueKobo.last30Days)} />
       </div>
 
-      <Panel title="Daily revenue, last 14 days">
-        <RevenueChart data={s.dailyRevenue} />
-      </Panel>
+      <RevenueChart title="Daily revenue, last 14 days" data={s.dailyRevenue} />
 
       <Panel title="Payments">
         <div className="tiles small">

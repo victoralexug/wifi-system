@@ -88,8 +88,8 @@ export interface AdminStats {
   orders: { pending: number; success: number; failed: number; flagged: number };
   /** Paid orders that couldn't get a voucher because their plan had none left. */
   ordersWaitingForVoucher: number;
-  /** Active plans with fewer than LOW_VOUCHER_STOCK unused codes. */
-  lowVoucherStock: { planId: string; planName: string; available: number }[];
+  /** Active plans with fewer than LOW_VOUCHER_STOCK codes on sale. `waitingForRouter` counts codes made but not yet loaded. */
+  lowVoucherStock: { planId: string; planName: string; available: number; waitingForRouter: number }[];
   dailyRevenue: { date: string; revenueKobo: number; orders: number }[];
 }
 

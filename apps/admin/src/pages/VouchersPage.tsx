@@ -3,7 +3,7 @@ import type { AddVouchersResult } from '@yourwifi/shared';
 import { useState, type ChangeEvent, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import { api, fmtTime } from '../api';
-import { Filters, Pager, Panel, StatusBadge, useDebounced } from '../components/ui';
+import { DataTable, Filters, Pager, Panel, StatusBadge, useDebounced } from '../components/ui';
 
 export function VouchersPage() {
   const qc = useQueryClient();
@@ -51,35 +51,33 @@ export function VouchersPage() {
 
       <Panel title="Stock">
         {stock.error && <p className="error">{stock.error.message}</p>}
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Plan</th>
-                <th className="num">On sale</th>
-                <th className="num">Waiting for router</th>
-                <th className="num">Monthly limit</th>
-                <th className="num">Given out</th>
-                <th className="num">Paid orders waiting</th>
+        <DataTable>
+          <thead>
+            <tr>
+              <th>Plan</th>
+              <th className="num">On sale</th>
+              <th className="num">Waiting for router</th>
+              <th className="num">Monthly limit</th>
+              <th className="num">Given out</th>
+              <th className="num">Paid orders waiting</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stock.data?.map((s) => (
+              <tr key={s.planId}>
+                <td>
+                  {s.planName}
+                  {!s.active && <span className="muted small"> (hidden)</span>}
+                </td>
+                <td className="num">{s.available > 0 || !s.active ? s.available : <StatusBadge status={s.waitingForRouter > 0 ? 'waiting_router' : 'sold_out'} />}</td>
+                <td className="num">{s.waitingForRouter || '—'}</td>
+                <td className="num">{s.target || '—'}</td>
+                <td className="num">{s.used}</td>
+                <td className="num">{s.waitingOrders > 0 ? <StatusBadge status="waiting" /> : null} {s.waitingOrders || '—'}</td>
               </tr>
-            </thead>
-            <tbody>
-              {stock.data?.map((s) => (
-                <tr key={s.planId}>
-                  <td>
-                    {s.planName}
-                    {!s.active && <span className="muted small"> (hidden)</span>}
-                  </td>
-                  <td className="num">{s.available === 0 && s.active ? <StatusBadge status="sold_out" /> : s.available}</td>
-                  <td className="num">{s.waitingForRouter || '—'}</td>
-                  <td className="num">{s.target || '—'}</td>
-                  <td className="num">{s.used}</td>
-                  <td className="num">{s.waitingOrders > 0 ? <StatusBadge status="waiting" /> : null} {s.waitingOrders || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </DataTable>
       </Panel>
 
       <Batches onChanged={refresh} />
@@ -107,47 +105,45 @@ export function VouchersPage() {
           ))}
         </select>
         {(list.error || remove.error) && <p className="error">{list.error?.message ?? remove.error?.message}</p>}
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Plan</th>
-                <th>Status</th>
-                <th>Given to</th>
-                <th>Added</th>
-                <th />
+        <DataTable>
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Plan</th>
+              <th>Status</th>
+              <th>Given to</th>
+              <th>Added</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {list.data?.items.map((v) => (
+              <tr key={v.id}>
+                <td className="mono">{v.code}</td>
+                <td>{v.planName}</td>
+                <td>
+                  <StatusBadge status={v.status} />
+                </td>
+                <td>
+                  {v.phone ?? '—'}
+                  {v.orderReference && (
+                    <div className="muted small">
+                      {v.orderReference} · {fmtTime(v.assignedAt)}
+                    </div>
+                  )}
+                </td>
+                <td>{fmtTime(v.createdAt)}</td>
+                <td className="actions">
+                  {v.status === 'available' && (
+                    <button className="btn" disabled={remove.isPending} onClick={() => remove.mutate(v.id)}>
+                      Delete
+                    </button>
+                  )}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {list.data?.items.map((v) => (
-                <tr key={v.id}>
-                  <td className="mono">{v.code}</td>
-                  <td>{v.planName}</td>
-                  <td>
-                    <StatusBadge status={v.status} />
-                  </td>
-                  <td>
-                    {v.phone ?? '—'}
-                    {v.orderReference && (
-                      <div className="muted small">
-                        {v.orderReference} · {fmtTime(v.assignedAt)}
-                      </div>
-                    )}
-                  </td>
-                  <td>{fmtTime(v.createdAt)}</td>
-                  <td className="actions">
-                    {v.status === 'available' && (
-                      <button className="btn" disabled={remove.isPending} onClick={() => remove.mutate(v.id)}>
-                        Delete
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </DataTable>
         {list.data && (
           <Pager page={page} pageSize={list.data.pageSize} total={list.data.total} onPage={(p) => setParam('page', String(p))} />
         )}
@@ -193,53 +189,51 @@ function Batches({ onChanged }: { onChanged: () => void }) {
       )}
       {batches.data?.length === 0 && <p className="muted">No batches yet. Set monthly limits on the Plans page, then generate one.</p>}
       {batches.data && batches.data.length > 0 && (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Made</th>
-                <th>Codes</th>
-                <th>Status</th>
-                <th />
+        <DataTable>
+          <thead>
+            <tr>
+              <th>Made</th>
+              <th>Codes</th>
+              <th>Status</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {batches.data.map((b) => (
+              <tr key={b.id}>
+                <td>
+                  {fmtTime(b.createdAt)}
+                  <div className="muted small">{b.period ? `Monthly, ${b.period}` : 'By hand'}</div>
+                </td>
+                <td>
+                  {b.codeCount}
+                  <div className="muted small">{b.plans.map((p) => `${p.planName}: ${p.count}`).join(', ')}</div>
+                </td>
+                <td>
+                  <StatusBadge status={b.readyAt ? 'loaded' : 'waiting_router'} />
+                  {b.readyAt && (
+                    <div className="muted small">
+                      {fmtTime(b.readyAt)} by {b.readyBy}
+                    </div>
+                  )}
+                </td>
+                <td className="actions">
+                  <a className="btn" href={api.batchExportUrl(b.id, 'rsc')} download>
+                    MikroTik file
+                  </a>
+                  <a className="btn" href={api.batchExportUrl(b.id, 'csv')} download>
+                    CSV
+                  </a>
+                  {!b.readyAt && (
+                    <button className="btn" disabled={ready.isPending} onClick={() => ready.mutate(b.id)}>
+                      Mark as loaded
+                    </button>
+                  )}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {batches.data.map((b) => (
-                <tr key={b.id}>
-                  <td>
-                    {fmtTime(b.createdAt)}
-                    <div className="muted small">{b.period ? `Monthly, ${b.period}` : 'By hand'}</div>
-                  </td>
-                  <td>
-                    {b.codeCount}
-                    <div className="muted small">{b.plans.map((p) => `${p.planName}: ${p.count}`).join(', ')}</div>
-                  </td>
-                  <td>
-                    <StatusBadge status={b.readyAt ? 'loaded' : 'waiting_router'} />
-                    {b.readyAt && (
-                      <div className="muted small">
-                        {fmtTime(b.readyAt)} by {b.readyBy}
-                      </div>
-                    )}
-                  </td>
-                  <td className="actions">
-                    <a className="btn" href={api.batchExportUrl(b.id, 'rsc')} download>
-                      MikroTik file
-                    </a>
-                    <a className="btn" href={api.batchExportUrl(b.id, 'csv')} download>
-                      CSV
-                    </a>
-                    {!b.readyAt && (
-                      <button className="btn" disabled={ready.isPending} onClick={() => ready.mutate(b.id)}>
-                        Mark as loaded
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </DataTable>
       )}
     </Panel>
   );

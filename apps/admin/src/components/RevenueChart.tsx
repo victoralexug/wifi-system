@@ -1,5 +1,6 @@
 import { formatNaira } from '@yourwifi/shared';
 import { useState } from 'react';
+import { Panel } from './ui';
 
 interface Point {
   date: string;
@@ -28,7 +29,7 @@ const dayLabel = (d: string) =>
   new Date(`${d}T12:00:00Z`).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
 /** Single-series daily revenue columns: one hue, no legend (the title names it), with a hover tooltip and a table fallback. */
-export function RevenueChart({ data }: { data: Point[] }) {
+export function RevenueChart({ title, data }: { title: string; data: Point[] }) {
   const [hover, setHover] = useState<number | null>(null);
   const [showTable, setShowTable] = useState(false);
   const max = niceMax(Math.max(...data.map((d) => d.revenueKobo)));
@@ -37,12 +38,14 @@ export function RevenueChart({ data }: { data: Point[] }) {
   const h = hover !== null ? data[hover] : null;
 
   return (
-    <div className="chart">
-      <div className="chart-head">
+    <Panel
+      title={title}
+      actions={
         <button className="link" onClick={() => setShowTable((s) => !s)}>
           {showTable ? 'Show chart' : 'Show as table'}
         </button>
-      </div>
+      }
+    >
       {showTable ? (
         <table className="table compact">
           <thead>
@@ -124,6 +127,6 @@ export function RevenueChart({ data }: { data: Point[] }) {
           </div>
         </div>
       )}
-    </div>
+    </Panel>
   );
 }

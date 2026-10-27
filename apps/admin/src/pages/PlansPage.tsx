@@ -3,7 +3,7 @@ import { formatDataMb, formatDuration, formatNaira, type Plan } from '@yourwifi/
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { api, type PlanInput } from '../api';
-import { Panel } from '../components/ui';
+import { DataTable, Panel } from '../components/ui';
 
 const UNITS = { minutes: 1, hours: 60, days: 1440 } as const;
 type Unit = keyof typeof UNITS;
@@ -155,43 +155,41 @@ export function PlansPage() {
       )}
 
       {plans.error && <p className="error">{plans.error.message}</p>}
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th className="num">Price</th>
-              <th>Duration</th>
-              <th>Data</th>
-              <th className="num">Codes left</th>
-              <th>Visible</th>
-              <th />
+      <DataTable>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th className="num">Price</th>
+            <th>Duration</th>
+            <th>Data</th>
+            <th className="num">Codes left</th>
+            <th>Visible</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {plans.data?.map((p) => (
+            <tr key={p.id} className={p.active ? '' : 'dim'}>
+              <td>
+                <strong>{p.name}</strong>
+                {p.description && <div className="muted small">{p.description}</div>}
+              </td>
+              <td className="num">{formatNaira(p.priceKobo)}</td>
+              <td>{formatDuration(p.durationMinutes)}</td>
+              <td>{p.dataCapMb ? formatDataMb(p.dataCapMb) : 'Unlimited'}</td>
+              <td className="num">
+                <Link to={`/vouchers?plan=${p.id}`}>{p.vouchersAvailable}</Link>
+              </td>
+              <td>{p.active ? 'Yes' : 'Hidden'}</td>
+              <td className="actions">
+                <button className="btn" onClick={() => start(p)}>
+                  Edit
+                </button>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {plans.data?.map((p) => (
-              <tr key={p.id} className={p.active ? '' : 'dim'}>
-                <td>
-                  <strong>{p.name}</strong>
-                  {p.description && <div className="muted small">{p.description}</div>}
-                </td>
-                <td className="num">{formatNaira(p.priceKobo)}</td>
-                <td>{formatDuration(p.durationMinutes)}</td>
-                <td>{p.dataCapMb ? formatDataMb(p.dataCapMb) : 'Unlimited'}</td>
-                <td className="num">
-                  <Link to={`/vouchers?plan=${p.id}`}>{p.vouchersAvailable}</Link>
-                </td>
-                <td>{p.active ? 'Yes' : 'Hidden'}</td>
-                <td className="actions">
-                  <button className="btn" onClick={() => start(p)}>
-                    Edit
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </DataTable>
     </div>
   );
 }
