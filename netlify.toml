@@ -10,6 +10,9 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  # Settings, not secrets. Their values ("mock", "paystack", the site URL) appear throughout
+  # the code and docs, which would otherwise fail Netlify's secrets scan if they're marked secret.
+  SECRETS_SCAN_OMIT_KEYS = "MAIL_DRIVER,PAYMENT_DRIVER,CORS_ORIGINS,PUBLIC_PORTAL_URL,TRUST_PROXY,VOUCHER_GENERATION_DAY"
 
 [functions]
   directory = "apps/api/src/functions"
