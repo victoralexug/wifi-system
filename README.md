@@ -18,7 +18,7 @@ The router isn't connected live. Generated batches reach it either through a sma
 | Portal | `apps/portal` | Sign up / sign in → plans (bundles / time passes) → pay → voucher code or rejection; My account lists purchases with their codes |
 | Admin | `apps/admin` | Revenue, payments, customers (password reset), plans (with stock targets), vouchers (stock, upload, generated batches, low-stock alerts) |
 | Shared | `packages/shared` | Types and formatting shared by all three |
-| Infra | `infra/`, `netlify.toml`, `render.yaml` | Router voucher sync script, hosting setup and go-live checklist |
+| Infra | `infra/`, `netlify.toml` | Router voucher sync script, hosting setup and go-live checklist |
 
 ## Run it locally (no Paystack account needed)
 
@@ -53,7 +53,7 @@ npm run typecheck
 
 ## Production
 
-Planned hosting is Netlify (portal + admin) + Render (API) + Supabase (database). See `infra/README.md` for setup and the go-live checklist.
+Hosting is Netlify (portal, admin, and the API as Netlify Functions) + Supabase (database). See `infra/README.md` for setup and the go-live checklist.
 
 To run everything from one server instead:
 

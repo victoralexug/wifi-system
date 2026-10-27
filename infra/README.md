@@ -4,33 +4,44 @@
 
 Set a **stock target** on each plan (Plans page). On `VOUCHER_GENERATION_DAY` (default: the 1st) the API generates codes to top each plan up to its target. The batch shows on the Vouchers page as **Waiting for router**, and its codes aren't sold until they're on the router. Load it one of two ways:
 
-- **Automatically (MikroTik):** set `ROUTER_TOKEN` (32+ random characters) on the API. In `mikrotik/yourwifi-voucher-sync.rsc` replace `API_HOST` (the Render host) and `ROUTER_TOKEN`, upload it to the router and run `/import yourwifi-voucher-sync.rsc`. Every 6 hours the router downloads any waiting batches, imports them as hotspot users and confirms, and the codes go on sale. It only makes outgoing requests, so it works behind Starlink. **Not yet tested on a real router**: try it on a virtual MikroTik (CHR) first.
+- **Automatically (MikroTik):** set `ROUTER_TOKEN` (32+ random characters) on the API. In `mikrotik/yourwifi-voucher-sync.rsc` replace `API_HOST` (the Netlify host) and `ROUTER_TOKEN`, upload it to the router and run `/import yourwifi-voucher-sync.rsc`. Every 6 hours the router downloads any waiting batches, imports them as hotspot users and confirms, and the codes go on sale. It only makes outgoing requests, so it works behind Starlink. **Not yet tested on a real router**: try it on a virtual MikroTik (CHR) first.
 - **By hand (any controller):** on the Vouchers page, download the batch as a **MikroTik file** (import with `/import file-name=…`) or **CSV**, load it on your controller, then click **Mark as loaded**.
 
 Each code becomes a hotspot user whose name and password are the code, with the plan's `limit-uptime` and `limit-bytes-total`, in a profile per plan (`yw-<plan id>`, one device at a time). Note that `limit-uptime` counts time connected, not calendar days. If a 30-day plan should end 30 days after first login whatever the usage, set that up on the router (for example with a login script) before going live.
 
 The hotspot itself (server, login page, walled garden for the portal and Paystack) is set up on the router separately.
 
-## Hosting without a VPS
+## Hosting
 
-Three free services:
+Two free services:
 
 | Part | Where | Config |
 | --- | --- | --- |
-| Portal (`/`) and admin (`/admin/`) | **Netlify**, at `https://wifisystem.netlify.app` for now | `netlify.toml` |
-| API | **Render** free web service | `render.yaml` |
-| Database | **Supabase** free Postgres | `DATABASE_URL` on Render |
+| Portal (`/`), admin (`/admin/`) and API (`/api/`) | **Netlify**, at `https://wifisystem.netlify.app` for now | `netlify.toml` |
+| Database | **Supabase** free Postgres | `DATABASE_URL` in Netlify |
 
-Netlify forwards `/api/*` to Render, so customers' browsers only ever talk to `wifisystem.netlify.app` and sign-in cookies are first-party. Point the Paystack webhook straight at Render: `https://<render host>/api/webhooks/paystack`.
+The API runs as two Netlify Functions in `apps/api/src/functions`: `api` serves every `/api/*` request, and `jobs` runs every 5 minutes to re-check unconfirmed payments with Paystack, give waiting orders their codes, and make the monthly voucher batch. Migrations run in each Netlify build, before the new version goes live. Everything is on one host, so sign-in cookies are first-party and the hotspot's walled garden needs only that host.
 
-**Order of setup:** Supabase first (to get `DATABASE_URL`), then Render (to get its host), then put that host into `netlify.toml` in place of `YOUR-API.onrender.com` and deploy Netlify. In Netlify's site settings the build command and publish folder come from `netlify.toml`, so leave them empty.
+- **Supabase:** in the project, click **Connect**, open the **Direct** tab (connection string) and pick **Transaction pooler** (port 6543). Replace `[YOUR-PASSWORD]` with the database password (Project Settings → Database can reset it) and add `?sslmode=no-verify` at the end, because Node doesn't trust Supabase's certificate authority by default.
+- **Netlify:** in Site configuration → Environment variables, set:
 
-- **Supabase:** create a project and copy the **Session pooler** connection string (Render has no IPv6, and Supabase's direct connection is IPv6-only). Add `?sslmode=no-verify`, because Node doesn't trust Supabase's certificate authority by default, and set it as `DATABASE_URL`. Migrations run when the API starts.
-- **Render:** create a Blueprint from the repo. Set `DATABASE_URL`, `ADMIN_JWT_SECRET` (32+ random characters) and `PAYSTACK_SECRET_KEY` (a `sk_test_` key while testing). `PUBLIC_PORTAL_URL` and `CORS_ORIGINS` are already set to the Netlify address in `render.yaml`.
-- **Sleeping:** free Render services sleep after 15 minutes without traffic and take about a minute to wake on the next request. Paystack retries webhooks that time out, and the status page's "Check my payment" confirms payments directly, so nothing is lost, but the first visitor after a quiet spell waits. Render's cheapest paid instance removes this.
-- **Testing mode:** `render.yaml` starts with `NODE_ENV=development` (so Paystack test keys are accepted) and `MAIL_DRIVER=mock` (password reset links appear in Render's logs instead of being emailed). At go-live switch to `NODE_ENV=production` and `MAIL_DRIVER=smtp`, and set a live Paystack key, `SMTP_URL` and `MAIL_FROM`. Production then refuses to start if anything is still in test mode.
-- **Plans and admin login:** from your own computer, add them to the Supabase database (Render's free plan has no Shell). In PowerShell: `$env:DATABASE_URL="<the Supabase URI>"; npm run db:seed; npm run admin:create -- you@example.com 'a-long-password'`.
-- **Your own domain later:** add it in Netlify, then change `PUBLIC_PORTAL_URL` and `CORS_ORIGINS` on Render.
+  | Variable | Value |
+  | --- | --- |
+  | `DATABASE_URL` | the Supabase string above |
+  | `ADMIN_JWT_SECRET`, `ROUTER_TOKEN` | 32+ random characters each |
+  | `PAYSTACK_SECRET_KEY` | `sk_test_…` while testing |
+  | `PAYMENT_DRIVER` | `paystack` |
+  | `PUBLIC_PORTAL_URL`, `CORS_ORIGINS` | `https://wifisystem.netlify.app` |
+  | `TRUST_PROXY` | `true` |
+  | `VOUCHER_GENERATION_DAY` | `2` (the Starlink renewal day) |
+  | `MAIL_DRIVER` | `mock` while testing |
+
+  Then trigger a deploy. In Netlify's build settings the build command, publish folder and functions folder come from `netlify.toml`, so leave them empty.
+- **Paystack:** set the webhook URL to `https://wifisystem.netlify.app/api/webhooks/paystack`.
+- **Testing mode:** with `MAIL_DRIVER=mock`, password reset links appear in the `api` function's logs (Netlify → Logs → Functions) instead of being emailed. At go-live set `NODE_ENV=production` **with its scope limited to Functions** (in Builds it would stop npm installing the build tools), `MAIL_DRIVER=smtp`, a live Paystack key, `SMTP_URL` and `MAIL_FROM`. The API then refuses to start if anything is still in test mode.
+- **Plans and admin login:** from your own computer, add them to the Supabase database. In PowerShell: `$env:DATABASE_URL="<the Supabase URI>"; npm run db:seed; npm run admin:create -- you@example.com 'a-long-password'`.
+- **Your own domain later:** add it in Netlify, then change `PUBLIC_PORTAL_URL`, `CORS_ORIGINS` and the Paystack webhook URL.
+- **Limits:** each API request must finish within Netlify's function timeout (10 s by default), and the free plan has monthly usage limits; a voucher shop stays far below both. Rate-limit counters live in the `rate_limits` table, because function instances share no memory.
 
 ## Go-live checklist
 

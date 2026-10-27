@@ -133,3 +133,10 @@ export const webhookEvents = pgTable('webhook_events', {
   payload: jsonb('payload'),
   receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Rate-limit counters, kept in the database because serverless instances share no memory.
+export const rateLimits = pgTable('rate_limits', {
+  key: text('key').primaryKey(),
+  hits: integer('hits').notNull(),
+  resetAt: timestamp('reset_at', { withTimezone: true }).notNull(),
+});

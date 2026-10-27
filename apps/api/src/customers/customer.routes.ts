@@ -5,9 +5,11 @@ import { Router, type Request } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { customers, orders, passwordResetTokens, plans, vouchers } from '../db/schema';
+import type { Database } from '../db/client';
 import type { Deps } from '../deps';
 import { badRequest, HttpError } from '../lib/errors';
 import { normalizeNigerianPhone } from '../lib/ids';
+import { PgRateLimitStore } from '../lib/rate-limit-store';
 import { hashPassword, verifyPassword } from '../lib/password';
 import type { MailMessage } from '../mail';
 import type { customerAuth } from './customer.auth';
@@ -56,8 +58,9 @@ function requirePhone(input: string): string {
  * Slows down password guessing. Only failed attempts count, so normal sign-ins never lock anyone out.
  * Keyed per account rather than per IP: everyone behind one Starlink dish shares an IP.
  */
-const failedAttemptLimiter = (keyGenerator: (req: Request) => string) =>
+const failedAttemptLimiter = (db: Database, name: string, keyGenerator: (req: Request) => string) =>
   rateLimit({
+    store: new PgRateLimitStore(db, name),
     windowMs: 15 * 60_000,
     limit: 10,
     skipSuccessfulRequests: true,
@@ -71,11 +74,14 @@ export function customerRoutes(deps: Deps, auth: ReturnType<typeof customerAuth>
   const r = Router();
   const { db } = deps;
   const perPhoneLimiter = failedAttemptLimiter(
+    db,
+    'customer-phone:',
     (req) => `phone:${normalizeNigerianPhone(String(req.body?.phone ?? '')) ?? 'invalid'}`,
   );
-  const perCustomerLimiter = failedAttemptLimiter((req) => `customer:${req.customerId}`);
+  const perCustomerLimiter = failedAttemptLimiter(db, 'customer-account:', (req) => `customer:${req.customerId}`);
   // Counts every request, not just failures: each one sends an email, so this stops inbox flooding.
   const perEmailResetLimiter = rateLimit({
+    store: new PgRateLimitStore(db, 'reset-email:'),
     windowMs: 60 * 60_000,
     limit: 5,
     standardHeaders: 'draft-8',

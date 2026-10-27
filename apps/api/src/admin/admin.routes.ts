@@ -15,6 +15,7 @@ import { admins, customers, orders, plans, vouchers } from '../db/schema';
 import type { Deps } from '../deps';
 import { badRequest, HttpError, notFound } from '../lib/errors';
 import { generateCode } from '../lib/ids';
+import { PgRateLimitStore } from '../lib/rate-limit-store';
 import { hashPassword, verifyPassword } from '../lib/password';
 import { toCsv, toRouterOsScript } from '../vouchers/export';
 import type { VoucherService } from '../vouchers/vouchers.service';
@@ -71,7 +72,7 @@ export function adminRoutes(deps: Deps, voucherService: VoucherService): Router 
 
   r.post(
     '/login',
-    rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false }),
+    rateLimit({ store: new PgRateLimitStore(db, 'admin-login:'), windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false }),
     async (req, res) => {
       const { email, password } = loginBody.parse(req.body);
       const [admin] = await db.select().from(admins).where(eq(admins.email, email.toLowerCase()));

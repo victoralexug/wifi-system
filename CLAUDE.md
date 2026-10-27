@@ -19,7 +19,7 @@ See `README.md` for local setup and `infra/README.md` for hosting and the go-liv
 | Database | PostgreSQL in production. **PGlite** (embedded Postgres) when `DATABASE_URL` is unset, for dev and tests |
 | Payments | **Paystack** (`PaystackProvider`), plus `MockPaymentProvider` for local dev |
 | Email | SMTP through nodemailer (`SmtpMailService`), plus `MockMailService`, which logs reset links to the API console |
-| Hosting | Planned, no VPS: **Netlify** serves the portal and admin (`netlify.toml`, currently `https://wifisystem.netlify.app`) and proxies `/api/*` to the API on a **Render** free web service (`render.yaml`); **Supabase** free Postgres. Not yet deployed |
+| Hosting | No VPS: **Netlify** serves the portal and admin and runs the API as **Netlify Functions** (`apps/api/src/functions`: `api` for `/api/*`, `jobs` scheduled every 5 min), `netlify.toml`, currently `https://wifisystem.netlify.app`; **Supabase** free Postgres (transaction pooler). Migrations run in the Netlify build. Being deployed (2026-10-27) |
 | Customer accounts | Sign in with phone number (normalized to +234…) + password (scrypt). Email (lowercased, unique) is required at sign-up and used only for password reset: a single-use link valid for 30 minutes, token stored as a SHA-256 hash and carried in the URL fragment. Admins can also issue a one-time password (Customers page). No SMS. Signed-JWT httpOnly cookie `yw_customer` (SameSite=Lax, 30 days) |
 | Portal | React 19 + Vite. No router or UI library, kept small for phones on weak connections |
 | Admin | React 19 + Vite + React Router 7 + TanStack Query, served at `/admin/` |
@@ -54,6 +54,8 @@ Run one test file: `cd apps/api && npx vitest run test/flow.test.ts`. Migrations
 - `payments/`: the `PaymentProvider` interface, Paystack, and mock.
 - `routes/`: public (`/api/plans`; `/api/orders*` need a signed-in customer and only return their own orders), webhook (`/api/webhooks/paystack`), dev (`/api/dev/mock-pay`, mock payments only).
 - `admin/`: JWT cookie auth (`yw_admin`, SameSite=Strict) and the admin API (stats, orders, customers, plans, vouchers).
+- `serverless.ts` + `functions/`: the Netlify Functions entry points. `functions/api.ts` wraps the Express app with serverless-http; `functions/jobs.ts` runs every job once (`runJobsOnce`). `index.ts` is the long-lived server for local dev.
+- `lib/rate-limit-store.ts`: express-rate-limit counters in Postgres (`rate_limits`), because function instances share no memory. Every limiter uses it with its own key prefix.
 - `jobs.ts`: the reconcile loop (`RECONCILE_INTERVAL_SECONDS`): Paystack pending orders, then waiting voucher assignments; and an hourly check for the monthly voucher batch (catches up if the server slept through the day).
 
 ## Non-negotiable rules
@@ -92,7 +94,7 @@ Based on `design guide/` (the "5 Rules of Clean Design" slides). Tokens live at 
 ## Status and open items
 
 - Built: customer accounts (with email password reset), plans (time passes and data bundles), voucher stock per plan with bulk upload, monthly generated batches delivered to the router (sync script or download), Paystack checkout with a confirmation page showing the voucher code or a rejection page, purchase history with codes on the account page, and the admin dashboard (revenue, payments, customers with password reset, plans, vouchers, low-stock alerts).
-- The starter catalogue in `scripts/seed.ts` is the owner's real one (2026-10-21): 1 GB/1 day ₦150 ×200, 10 GB/1 week ₦3,000 ×60, 30 GB/2 weeks ₦5,000 ×20, 60 GB/30 days ₦7,000 ×20, 100 GB/30 days ₦10,000 ×20 per month (stock targets), 4,600 GB a month in total against a 5 TB Starlink plan renewed on the 2nd (`VOUCHER_GENERATION_DAY=2` in `render.yaml`). **The stock target is also the monthly sales cap**: the monthly batch only tops up to it. Uploading extra codes or raising a target mid-month lets more be sold that month.
+- The starter catalogue in `scripts/seed.ts` is the owner's real one (2026-10-21): 1 GB/1 day ₦150 ×200, 10 GB/1 week ₦3,000 ×60, 30 GB/2 weeks ₦5,000 ×20, 60 GB/30 days ₦7,000 ×20, 100 GB/30 days ₦10,000 ×20 per month (stock targets), 4,600 GB a month in total against a 5 TB Starlink plan renewed on the 2nd (`VOUCHER_GENERATION_DAY=2` in Netlify's environment variables). **The stock target is also the monthly sales cap**: the monthly batch only tops up to it. Uploading extra codes or raising a target mid-month lets more be sold that month.
 - **Not yet verified on a router:** the generated RouterOS import file and `yourwifi-voucher-sync.rsc`. `limit-uptime` counts connected time, not calendar days; calendar expiry for multi-day plans needs a router-side setting or script.
-- Open decisions: hosting is planned (Netlify + Render + Supabase) but not yet deployed; the brand name and domain (search for `YourWiFi` and `yourwifi.ng`); an email provider for production.
+- Open decisions: hosting (Netlify + Supabase) is being set up; the brand name and domain (search for `YourWiFi` and `yourwifi.ng`); an email provider for production.
 - Possible next steps: signing out other devices after a password reset (customer cookies are stateless JWTs, so they stay valid until they expire), Paystack refunds from the admin dashboard.

@@ -8,7 +8,7 @@
 # NOT yet tested on a real router. Try it on a virtual MikroTik (CHR) first.
 #
 # Before importing (/import yourwifi-voucher-sync.rsc):
-#   API_HOST      the API's host, e.g. yourwifi.onrender.com
+#   API_HOST      the API's host, e.g. wifisystem.netlify.app
 #   ROUTER_TOKEN  the same value as ROUTER_TOKEN in the API's environment
 #
 # The hotspot itself (server, login page, walled garden) is set up separately. Customers log in

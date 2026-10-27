@@ -4,14 +4,16 @@ import { Router, type RequestHandler } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { plans } from '../db/schema';
+import type { Database } from '../db/client';
 import type { Deps } from '../deps';
+import { PgRateLimitStore } from '../lib/rate-limit-store';
 import type { OrderService } from '../orders/orders.service';
 import type { VoucherService } from '../vouchers/vouchers.service';
 
 // Every customer behind one Starlink dish shares a single public (CGNAT) IP, so per-IP
 // limits must be generous. They stop scripted abuse, not normal traffic.
-const limiter = (limit: number) =>
-  rateLimit({ windowMs: 60_000, limit, standardHeaders: 'draft-8', legacyHeaders: false });
+const limiter = (db: Database, name: string, limit: number) =>
+  rateLimit({ store: new PgRateLimitStore(db, name), windowMs: 60_000, limit, standardHeaders: 'draft-8', legacyHeaders: false });
 
 const createOrderBody = z.object({ planId: z.uuid() });
 
@@ -48,17 +50,17 @@ export function publicRoutes(
   });
 
   // Buying needs an account, so customers can sign in later to see what they bought.
-  r.post('/orders', limiter(60), requireCustomer, async (req, res) => {
+  r.post('/orders', limiter(db, 'order-create:', 60), requireCustomer, async (req, res) => {
     const body = createOrderBody.parse(req.body);
     res.status(201).json(await orderService.create({ ...body, customerId: req.customerId! }));
   });
 
-  r.get('/orders/:reference', limiter(240), requireCustomer, async (req, res) => {
+  r.get('/orders/:reference', limiter(db, 'order-status:', 240), requireCustomer, async (req, res) => {
     res.json(await orderService.getStatus(String(req.params.reference), req.customerId));
   });
 
   // "Check my payment": asks the provider directly when the redirect or webhook didn't arrive.
-  r.post('/orders/:reference/verify', limiter(60), requireCustomer, async (req, res) => {
+  r.post('/orders/:reference/verify', limiter(db, 'order-verify:', 60), requireCustomer, async (req, res) => {
     const reference = String(req.params.reference);
     await orderService.getStatus(reference, req.customerId); // 404s unless it's this customer's order
     await orderService.confirmPayment(reference);

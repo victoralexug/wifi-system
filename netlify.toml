@@ -1,23 +1,34 @@
-# Netlify serves the customer portal (/) and the admin dashboard (/admin/), and forwards /api/*
-# to the API on Render. Browsers only ever talk to this one host, so sign-in cookies stay
-# first-party and the hotspot's walled garden needs just this host.
-# See "Hosting without a VPS" in infra/README.md.
+# Netlify hosts everything: the customer portal (/), the admin dashboard (/admin/), and the API
+# as Netlify Functions (apps/api/src/functions). The database is Supabase Postgres.
+# Browsers only ever talk to this one host, so sign-in cookies stay first-party and the
+# hotspot's walled garden needs just this host. See "Hosting" in infra/README.md.
 
 [build]
-  command = "npm run build:web"
+  # Database migrations run here, against DATABASE_URL, before the new functions go live.
+  command = "npm run build:web && npm run db:migrate"
   publish = "apps/portal/dist"
 
 [build.environment]
   NODE_VERSION = "22"
 
-# Replace YOUR-API.onrender.com with the Render service's host. Must stay first.
+[functions]
+  directory = "apps/api/src/functions"
+  node_bundler = "esbuild"
+  # Local-dev only: the embedded database and pretty logs never run on Netlify.
+  external_node_modules = ["@electric-sql/pglite", "pino-pretty"]
+
+# Re-checks unconfirmed payments with Paystack, gives waiting orders their codes, and makes the
+# monthly voucher batch on VOUCHER_GENERATION_DAY.
+[functions.jobs]
+  schedule = "*/5 * * * *"
+
+# The API. Must stay before the single-page-app fallbacks.
 [[redirects]]
   from = "/api/*"
-  to = "https://YOUR-API.onrender.com/api/:splat"
+  to = "/.netlify/functions/api/:splat"
   status = 200
   force = true
 
-# Single-page apps: unknown paths load the app, which shows the right page.
 [[redirects]]
   from = "/admin/*"
   to = "/admin/index.html"

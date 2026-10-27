@@ -19,12 +19,14 @@ export interface DatabaseHandle {
 export async function createDatabase(opts: {
   databaseUrl?: string;
   pgliteDir?: string;
+  /** Postgres connections to keep open. Serverless functions handle one request at a time, so need few. */
+  poolMax?: number;
 }): Promise<DatabaseHandle> {
   if (opts.databaseUrl) {
     const { Pool } = await import('pg');
     const { drizzle } = await import('drizzle-orm/node-postgres');
     const { migrate } = await import('drizzle-orm/node-postgres/migrator');
-    const pool = new Pool({ connectionString: opts.databaseUrl, max: 10 });
+    const pool = new Pool({ connectionString: opts.databaseUrl, max: opts.poolMax ?? 10 });
     const db = drizzle(pool, { schema });
     return {
       db: db as unknown as Database,
