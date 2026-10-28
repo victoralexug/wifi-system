@@ -90,10 +90,6 @@ export function PlansPage() {
           New plan
         </button>
       </div>
-      <p className="muted">
-        Price changes apply to new purchases only. Past payments keep the price they were paid at.
-        Plans can't be deleted because past payments refer to them; switch a plan off to hide it.
-      </p>
 
       {editing && (
         <Panel title={editing === 'new' ? 'New plan' : 'Edit plan'}>
@@ -123,19 +119,16 @@ export function PlansPage() {
             </label>
             <label>
               Data bundle (GB)
-              <input type="number" min="0.1" step="0.1" {...field('dataCapGb')} placeholder="Empty means unlimited data" />
+              <input type="number" min="0.1" step="0.1" {...field('dataCapGb')} placeholder="Empty = unlimited" />
             </label>
             <label>
               Sort order
               <input type="number" {...field('sortOrder')} />
             </label>
             <label>
-              Sell at most this many per month
+              Monthly limit
               <input type="number" min="0" step="1" {...field('voucherStockTarget')} />
-              <small className="muted">
-                On the monthly voucher day, codes are generated so this many are on sale, and no more sell until next month.
-                0 = you upload codes yourself.
-              </small>
+              <small className="muted">0 = you upload codes yourself</small>
             </label>
             <label className="check">
               <input type="checkbox" checked={draft.active} onChange={(e) => setDraft({ ...draft, active: e.target.checked })} />

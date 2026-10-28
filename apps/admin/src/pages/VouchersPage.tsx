@@ -38,16 +38,7 @@ export function VouchersPage() {
 
   return (
     <div className="stack">
-      <div>
-        <h1>Vouchers</h1>
-        <p className="muted">
-          When a customer pays for a plan, they're given the next unused code for it. Codes come from two places: ones
-          you upload (exported from your Wi-Fi system), and batches this system generates each month so each plan has its
-          monthly limit on sale (set on the Plans page), and no more than that sells per month. Generated codes go on sale
-          once they're loaded on the router.
-          A plan with no codes on sale shows as sold out.
-        </p>
-      </div>
+      <h1>Vouchers</h1>
 
       <Panel title="Stock">
         {stock.error && <p className="error">{stock.error.message}</p>}
@@ -59,7 +50,7 @@ export function VouchersPage() {
               <th className="num">Waiting for router</th>
               <th className="num">Monthly limit</th>
               <th className="num">Given out</th>
-              <th className="num">Paid orders waiting</th>
+              <th className="num">Orders waiting</th>
             </tr>
           </thead>
           <tbody>
@@ -69,7 +60,7 @@ export function VouchersPage() {
                   {s.planName}
                   {!s.active && <span className="muted small"> (hidden)</span>}
                 </td>
-                <td className="num">{s.available > 0 || !s.active ? s.available : <StatusBadge status={s.waitingForRouter > 0 ? 'waiting_router' : 'sold_out'} />}</td>
+                <td className="num">{s.available > 0 || !s.active || s.waitingForRouter > 0 ? s.available : <StatusBadge status="sold_out" />}</td>
                 <td className="num">{s.waitingForRouter || '—'}</td>
                 <td className="num">{s.target || '—'}</td>
                 <td className="num">{s.used}</td>
@@ -162,7 +153,7 @@ function Batches({ onChanged }: { onChanged: () => void }) {
       setNote(
         r.batch
           ? `Generated ${r.batch.codeCount} codes.`
-          : "Nothing to generate: every plan already has its monthly limit on sale or sold this month.",
+          : 'Nothing to generate: every plan is at its monthly limit.',
       );
       onChanged();
     },
@@ -178,16 +169,11 @@ function Batches({ onChanged }: { onChanged: () => void }) {
         </button>
       }
     >
-      <p className="muted small">
-        A new batch is made automatically each month. Load it on the router by downloading it here and importing the file
-        (then click <strong>Mark as loaded</strong>), or let the router collect it by itself with the sync script in{' '}
-        <span className="mono">infra/mikrotik/yourwifi-voucher-sync.rsc</span>.
-      </p>
       {note && <p>{note}</p>}
       {(batches.error || generate.error || ready.error) && (
         <p className="error">{batches.error?.message ?? generate.error?.message ?? ready.error?.message}</p>
       )}
-      {batches.data?.length === 0 && <p className="muted">No batches yet. Set monthly limits on the Plans page, then generate one.</p>}
+      {batches.data?.length === 0 && <p className="muted">No batches yet.</p>}
       {batches.data && batches.data.length > 0 && (
         <DataTable>
           <thead>
@@ -205,10 +191,7 @@ function Batches({ onChanged }: { onChanged: () => void }) {
                   {fmtTime(b.createdAt)}
                   <div className="muted small">{b.period ? `Monthly, ${b.period}` : 'By hand'}</div>
                 </td>
-                <td>
-                  {b.codeCount}
-                  <div className="muted small">{b.plans.map((p) => `${p.planName}: ${p.count}`).join(', ')}</div>
-                </td>
+                <td title={b.plans.map((p) => `${p.planName}: ${p.count}`).join('\n')}>{b.codeCount}</td>
                 <td>
                   <StatusBadge status={b.readyAt ? 'loaded' : 'waiting_router'} />
                   {b.readyAt && (
@@ -286,12 +269,12 @@ function AddVouchers({ plans, onAdded }: { plans: { planId: string; planName: st
           </select>
         </label>
         <label>
-          Codes: one per line, or separated by commas or spaces
+          Codes (one per line)
           <textarea rows={6} className="mono" value={codes} onChange={(e) => setCodes(e.target.value)} placeholder={'AB12CD34\nEF56GH78\n…'} />
         </label>
         <div className="row">
           <label className="btn file-btn">
-            Load from file (.txt, .csv)
+            From file
             <input type="file" accept=".txt,.csv,text/plain,text/csv" onChange={readFile} hidden />
           </label>
           <button className="btn primary" disabled={!planId || count === 0 || add.isPending}>
@@ -302,18 +285,17 @@ function AddVouchers({ plans, onAdded }: { plans: { planId: string; planName: st
         {result && (
           <div className="result">
             <p>
-              <StatusBadge status="done" /> Added {result.added} code{result.added === 1 ? '' : 's'}.
-              {result.assignedToWaiting > 0 &&
-                ` ${result.assignedToWaiting} waiting paid order${result.assignedToWaiting === 1 ? ' was' : 's were'} given a code.`}
+              <StatusBadge status="done" /> Added {result.added}.
+              {result.assignedToWaiting > 0 && ` ${result.assignedToWaiting} waiting order${result.assignedToWaiting === 1 ? '' : 's'} got a code.`}
             </p>
             {result.duplicates.length > 0 && (
               <p className="muted">
-                Skipped {result.duplicates.length} already in the system: <span className="mono">{preview(result.duplicates)}</span>
+                {result.duplicates.length} already added: <span className="mono">{preview(result.duplicates)}</span>
               </p>
             )}
             {result.invalid.length > 0 && (
               <p className="error">
-                Skipped {result.invalid.length} that aren't valid codes: <span className="mono">{preview(result.invalid)}</span>
+                {result.invalid.length} invalid: <span className="mono">{preview(result.invalid)}</span>
               </p>
             )}
           </div>

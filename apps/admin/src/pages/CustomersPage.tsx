@@ -30,14 +30,7 @@ export function CustomersPage() {
 
   return (
     <div className="stack">
-      <div>
-        <h1>Customers</h1>
-        <p className="muted">
-          Customers reset a forgotten password themselves with the "Forgot your password?" email link. If they have no
-          email on file or can't reach it, reset it here and read them the temporary password over the phone.
-          They can change it from their account page.
-        </p>
-      </div>
+      <h1>Customers</h1>
       <div className="filters">
         <input
           type="search"

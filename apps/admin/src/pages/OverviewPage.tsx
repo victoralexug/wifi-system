@@ -24,34 +24,33 @@ export function OverviewPage() {
         <div className="attention">
           {s.ordersWaitingForVoucher > 0 && (
             <p>
-              <StatusBadge status="waiting" /> {s.ordersWaitingForVoucher} paid order{s.ordersWaitingForVoucher === 1 ? ' is' : 's are'}{' '}
-              waiting for a voucher code because the plan ran out. Add codes and they're given out straight away.{' '}
-              <Link to="/vouchers">Add codes</Link>
+              <StatusBadge status="waiting" /> {s.ordersWaitingForVoucher} paid order{s.ordersWaitingForVoucher === 1 ? '' : 's'} without a
+              code. <Link to="/vouchers">Add codes</Link>
             </p>
           )}
           {notLoaded.length > 0 && (
             <p>
-              <StatusBadge status="waiting_router" /> Codes are ready but not on sale until they're loaded on the router:{' '}
+              <StatusBadge status="waiting_router" />{' '}
               <strong>{notLoaded.map((p) => `${p.planName} (${p.waitingForRouter})`).join(', ')}</strong>.{' '}
               <Link to="/vouchers">Load them</Link>
             </p>
           )}
           {soldOut.length > 0 && (
             <p>
-              <StatusBadge status="sold_out" /> No voucher codes left, so customers can't buy:{' '}
+              <StatusBadge status="sold_out" />{' '}
               <strong>{soldOut.map((p) => p.planName).join(', ')}</strong>. <Link to="/vouchers">Add codes</Link>
             </p>
           )}
           {low.length > 0 && (
             <p>
-              <StatusBadge status="low" /> Running low on voucher codes:{' '}
+              <StatusBadge status="low" />{' '}
               <strong>{low.map((p) => `${p.planName} (${p.available} left)`).join(', ')}</strong>. <Link to="/vouchers">Add codes</Link>
             </p>
           )}
           {s.orders.flagged > 0 && (
             <p>
-              <StatusBadge status="flagged" /> {s.orders.flagged} payment{s.orders.flagged === 1 ? '' : 's'} flagged for an amount
-              mismatch. <Link to="/orders?status=flagged">Review</Link>
+              <StatusBadge status="flagged" /> {s.orders.flagged} payment{s.orders.flagged === 1 ? '' : 's'} with the wrong
+              amount. <Link to="/orders?status=flagged">Review</Link>
             </p>
           )}
         </div>
