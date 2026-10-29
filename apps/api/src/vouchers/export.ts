@@ -32,7 +32,7 @@ export function toRouterOsScript(rows: Row[], opts: { generatedAt: Date; ackUrls
     `# YourWiFi voucher codes: ${rows.length}, exported ${opts.generatedAt.toISOString()}.`,
     '# Import on the router (RouterOS v7):  /import file-name=<this file>',
     '# Each code becomes a hotspot user whose name and password are the code. Existing codes are skipped.',
-    "# limit-uptime counts time connected to the hotspot, not calendar days.",
+    "# A code expires its plan's duration after purchase; the sync script removes it then. limit-uptime is a backstop.",
   ];
   const seen = new Set<string>();
   const planRows = rows.filter((r) => !seen.has(r.plan.id) && seen.add(r.plan.id));
@@ -58,5 +58,20 @@ export function toRouterOsScript(rows: Row[], opts: { generatedAt: Date; ackUrls
     lines.push(`/tool fetch url="${url}" http-method=post http-header-field="Authorization: Bearer ${opts.token}" output=none`);
   }
   if (opts.ackUrls) lines.push(`:log info "yourwifi: loaded ${rows.length} voucher codes"`);
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * A RouterOS script that logs out and removes expired codes. Removing a code that's already gone is
+ * harmless. `ackUrl` is fetched at the end, which tells the API they're off the router.
+ */
+export function toExpiredScript(codes: string[], opts: { ackUrl: string; token: string }): string {
+  const lines = [`# YourWiFi: ${codes.length} expired voucher codes to remove.`];
+  for (const code of codes) {
+    lines.push(`/ip hotspot active remove [find user="${code}"]`);
+    lines.push(`/ip hotspot user remove [find name="${code}"]`);
+  }
+  lines.push(`/tool fetch url="${opts.ackUrl}" http-method=post http-header-field="Authorization: Bearer ${opts.token}" output=none`);
+  lines.push(`:log info "yourwifi: removed ${codes.length} expired voucher codes"`);
   return lines.join('\n') + '\n';
 }

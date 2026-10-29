@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 const STATUS: Record<string, { tone: 'good' | 'warning' | 'critical' | 'neutral'; label: string }> = {
   success: { tone: 'good', label: 'Paid' },
@@ -85,23 +85,11 @@ export function Filters({
   );
 }
 
-/**
- * A table that turns into one card per row on phones. Each cell is labelled with its column
- * heading (data-label, shown by CSS), copied from the header after every render.
- */
+/** A table that scrolls sideways on phones, keeping its rows (styles.css). */
 export function DataTable({ children }: { children: ReactNode }) {
-  const ref = useRef<HTMLTableElement>(null);
-  useLayoutEffect(() => {
-    const table = ref.current;
-    if (!table) return;
-    const labels = [...table.querySelectorAll('thead th')].map((th) => th.textContent?.trim() ?? '');
-    for (const row of table.querySelectorAll('tbody tr')) {
-      [...row.children].forEach((cell, i) => cell.setAttribute('data-label', labels[i] ?? ''));
-    }
-  });
   return (
     <div className="table-wrap">
-      <table ref={ref} className="table cards">
+      <table className="table">
         {children}
       </table>
     </div>

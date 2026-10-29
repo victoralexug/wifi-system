@@ -208,6 +208,11 @@ input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px
 .list-row { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); padding: 12px 0; border-top: 1px solid var(--line); }
 .list-row:first-of-type { border-top: 0; }
 .list-row > div { display: flex; flex-direction: column; }
+.list-row > div:has(.meter) { flex: 1; min-width: 0; }
+.list-row > .badge { flex: none; }
+.list-row > div > .meter { margin-top: var(--s1); }
+.meter { display: block; width: 100%; height: var(--s1); border-radius: var(--pill); background: var(--neutral); overflow: hidden; }
+.meter > span { display: block; height: 100%; background: var(--primary); }
 
 .foot { text-align: center; font-size: var(--fs-small); color: var(--muted); padding: var(--s4) 0; }
 .foot a { color: var(--primary); }

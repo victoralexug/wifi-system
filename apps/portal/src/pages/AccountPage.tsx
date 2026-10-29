@@ -1,13 +1,42 @@
-import { formatNaira, type AccountOrder } from '@yourwifi/shared';
+import { formatDataMb, formatNaira, type AccountOrder } from '@yourwifi/shared';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../auth';
-import { api, ApiError, formatLagosTime, navigate, signInUrl } from '../lib';
+import { api, ApiError, formatAgo, formatBytes, formatLagosTime, formatSeconds, navigate, signInUrl } from '../lib';
 
-const STATUS: Record<string, { label: string; tone: string }> = {
-  success: { label: 'Paid', tone: 'ok' },
-  failed: { label: 'Declined', tone: 'bad' },
-  flagged: { label: 'Under review', tone: 'warn' },
-};
+function status(o: AccountOrder): { label: string; tone: string } {
+  if (o.status === 'failed') return { label: 'Declined', tone: 'bad' };
+  if (o.status === 'flagged') return { label: 'Under review', tone: '' };
+  if (o.status !== 'success') return { label: o.status, tone: '' };
+  if (!o.voucherCode || !o.state) return { label: 'Being prepared', tone: '' };
+  if (o.state === 'expired') return { label: 'Expired', tone: '' };
+  if (o.state === 'used_up') return { label: 'Used up', tone: '' };
+  if (o.state === 'unused') return { label: 'Not used yet', tone: 'ok' };
+  return { label: o.usage?.online ? 'Online now' : 'Active', tone: 'ok' };
+}
+
+/** Days and data left on a code that's still valid, with a bar for whichever runs out first. */
+function Remaining({ o }: { o: AccountOrder }) {
+  if (!o.expiresAt) return null;
+  if (o.state === 'expired') return <span className="muted small">Expired {formatLagosTime(o.expiresAt)}</span>;
+  if (o.state !== 'active' && o.state !== 'unused') return null;
+  const msLeft = Math.max(0, new Date(o.expiresAt).getTime() - Date.now());
+  const timeUsed = 1 - msLeft / (o.durationMinutes * 60_000);
+  const cap = o.dataCapMb ? o.dataCapMb * 1024 * 1024 : null;
+  const bytesLeft = o.usage?.bytesLeft ?? null;
+  const dataUsed = cap && bytesLeft !== null ? 1 - bytesLeft / cap : 0;
+  const data = !o.dataCapMb ? 'Unlimited data' : bytesLeft !== null ? `${formatBytes(bytesLeft)} left` : formatDataMb(o.dataCapMb);
+  return (
+    <>
+      <span className="small">
+        {formatSeconds(msLeft / 1000)} left · {data}
+      </span>
+      <span className="muted small">Expires {formatLagosTime(o.expiresAt)}</span>
+      <span className="meter" aria-hidden="true">
+        <span style={{ width: `${Math.round((1 - Math.min(1, Math.max(timeUsed, dataUsed))) * 100)}%` }} />
+      </span>
+    </>
+  );
+}
 
 export function AccountPage() {
   const { customer, signOut } = useAuth();
@@ -27,6 +56,7 @@ export function AccountPage() {
   }, [customer]);
 
   if (!customer) return <div className="skeleton" aria-label="Loading" />;
+  const checkedAt = orders?.find((o) => o.usage)?.usage?.checkedAt;
 
   return (
     <div className="stack">
@@ -53,22 +83,27 @@ export function AccountPage() {
         <>
           <section className="list">
             <h2>My purchases</h2>
-            {orders.map((o) => (
-              <div key={o.reference} className="list-row">
-                <div>
-                  <strong>{o.planName}</strong>
-                  <span className="muted small">
-                    {formatLagosTime(o.paidAt ?? o.createdAt)} · {formatNaira(o.amountKobo)}
-                  </span>
-                  {o.status === 'success' && (
-                    <span className="small">
-                      Voucher: {o.voucherCode ? <strong className="mono">{o.voucherCode}</strong> : <em className="muted">being prepared</em>}
+            {checkedAt && <p className="muted small">Usage updated {formatAgo(checkedAt)}</p>}
+            {orders.map((o) => {
+              const s = status(o);
+              return (
+                <div key={o.reference} className="list-row">
+                  <div>
+                    <strong>{o.planName}</strong>
+                    <span className="muted small">
+                      {formatLagosTime(o.paidAt ?? o.createdAt)} · {formatNaira(o.amountKobo)}
                     </span>
-                  )}
+                    {o.voucherCode && (
+                      <span className="small">
+                        Code: <strong className="mono">{o.voucherCode}</strong>
+                      </span>
+                    )}
+                    {o.voucherCode && <Remaining o={o} />}
+                  </div>
+                  <span className={`badge ${s.tone}`}>{s.label}</span>
                 </div>
-                <span className={`badge ${STATUS[o.status]?.tone ?? ''}`}>{STATUS[o.status]?.label ?? o.status}</span>
-              </div>
-            ))}
+              );
+            })}
           </section>
           <a className="btn primary block" href="/">
             Buy a plan

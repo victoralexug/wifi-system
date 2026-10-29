@@ -12,6 +12,7 @@ import { normalizeNigerianPhone } from '../lib/ids';
 import { PgRateLimitStore } from '../lib/rate-limit-store';
 import { hashPassword, verifyPassword } from '../lib/password';
 import type { MailMessage } from '../mail';
+import { lastUsageReport, voucherStatus } from '../vouchers/usage';
 import type { customerAuth } from './customer.auth';
 
 const password = z.string().min(8, 'Password must be at least 8 characters').max(200);
@@ -213,19 +214,25 @@ export function customerRoutes(deps: Deps, auth: ReturnType<typeof customerAuth>
   // Purchase history, newest first. Abandoned checkouts (still pending) are left out.
   r.get('/me/orders', auth.require, async (req, res) => {
     const rows = await db
-      .select({ o: orders, planName: plans.name, voucherCode: vouchers.code })
+      .select({ o: orders, plan: plans, voucher: vouchers })
       .from(orders)
       .innerJoin(plans, eq(plans.id, orders.planId))
       .leftJoin(vouchers, eq(vouchers.orderId, orders.id))
       .where(and(eq(orders.customerId, req.customerId!), ne(orders.status, 'pending')))
       .orderBy(desc(orders.createdAt))
       .limit(50);
-    const body: AccountOrder[] = rows.map(({ o, planName, voucherCode }) => ({
+    const checkedAt = await lastUsageReport(db);
+    const now = deps.now();
+    const body: AccountOrder[] = rows.map(({ o, plan, voucher }) => ({
       reference: o.reference,
       status: o.status,
-      planName,
+      planName: plan.name,
+      durationMinutes: plan.durationMinutes,
+      dataCapMb: plan.dataCapMb,
       amountKobo: o.amountKobo,
-      voucherCode,
+      voucherCode: voucher?.code ?? null,
+      expiresAt: voucher?.expiresAt?.toISOString() ?? null,
+      ...(voucher ? voucherStatus(voucher, plan, checkedAt, now) : { state: null, usage: null }),
       paidAt: o.paidAt?.toISOString() ?? null,
       createdAt: o.createdAt.toISOString(),
     }));

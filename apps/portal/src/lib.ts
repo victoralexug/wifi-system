@@ -94,6 +94,31 @@ const lagos = new Intl.DateTimeFormat('en-NG', {
 
 export const formatLagosTime = (iso: string) => lagos.format(new Date(iso));
 
+/** 200000 → "2d 7h", 5400 → "1h 30m", 300 → "5m". */
+export function formatSeconds(s: number): string {
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d) return h ? `${d}d ${h}h` : `${d}d`;
+  if (h) return m ? `${h}h ${m}m` : `${h}h`;
+  return `${m}m`;
+}
+
+/** Binary units, like the plans (1 GB = 1024 MB). */
+export function formatBytes(b: number): string {
+  const mb = b / 1024 / 1024;
+  if (mb >= 1024) return `${+(mb / 1024).toFixed(1)} GB`;
+  return `${Math.floor(mb)} MB`;
+}
+
+/** "just now", "12 min ago", or the time when it's over an hour. */
+export function formatAgo(iso: string): string {
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min} min ago`;
+  return formatLagosTime(iso);
+}
+
 
 /** Sends the customer to sign in, then back to `next` afterwards. */
 export function signInUrl(next: string = location.pathname + location.search) {

@@ -202,20 +202,13 @@ input:focus, select:focus { outline: none; border-color: var(--primary); box-sha
 .table .actions { text-align: right; white-space: nowrap; }
 .table .actions .btn + .btn { margin-left: 6px; }
 
-/* Phones: one card per row, each value labelled with its column (DataTable sets data-label). */
+/* Phones: tables keep their rows and scroll sideways, with the first column pinned. */
 @media (max-width: 640px) {
-  .table.cards thead { display: none; }
-  .table.cards, .table.cards tbody, .table.cards tr { display: block; width: 100%; }
-  .table.cards tr { padding: var(--s2) 0; border-top: 1px solid var(--border); }
-  .table.cards tbody tr:first-child { border-top: 0; }
-  .table.cards tbody tr:hover td { background: none; }
-  /* Label in the left column; the value, and any second line under it, stacked on the right. */
-  .table.cards td { display: grid; grid-template-columns: auto 1fr; column-gap: var(--s3); justify-items: end; align-items: baseline; padding: 6px var(--pad); border: 0; text-align: right; overflow-wrap: anywhere; }
-  .table.cards td::before { content: attr(data-label); grid-row: span 9; justify-self: start; text-align: left; color: var(--muted); font-family: 'Inter Variable', system-ui, sans-serif; font-size: var(--fs-small); font-weight: 500; letter-spacing: normal; }
-  .table.cards td[data-label=""]::before { display: none; }
-  .table.cards td:empty { display: none; }
-  .table.cards td.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; white-space: normal; padding-top: var(--s2); }
-  .table.cards td.actions .btn + .btn { margin-left: 0; }
+  .table th, .table td { padding: var(--s2) var(--s3); white-space: nowrap; font-size: var(--fs-small); }
+  .table th:first-child, .table td:first-child { position: sticky; left: 0; z-index: 1; box-shadow: 1px 0 0 var(--line); }
+  .table th:first-child { background: var(--neutral-soft); }
+  .table td:first-child, .table tbody tr:hover td:first-child { background: var(--surface); }
+  .table .btn { padding-block: var(--s1); }
   .temp-password { flex-wrap: wrap; border-radius: 12px; }
   .segmented { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
 }

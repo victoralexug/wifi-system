@@ -66,11 +66,32 @@ export interface AccountOrder {
   reference: string;
   status: OrderStatus;
   planName: string;
+  durationMinutes: number;
+  /** Null = unlimited data. */
+  dataCapMb: number | null;
   amountKobo: number;
   /** Given once the order is paid. Null for a paid order while it waits for a voucher to be loaded. */
   voucherCode: string | null;
+  /** The code's plan duration from purchase, used or not. Null until the order has a code. */
+  expiresAt: string | null;
+  /** Null until the order has a code. `unused` and `used_up` need a usage report from the router. */
+  state: 'unused' | 'active' | 'expired' | 'used_up' | null;
+  /** Data used, from the router's last report. Null when there's no code or no report yet. */
+  usage: VoucherUsage | null;
   paidAt: string | null;
   createdAt: string;
+}
+
+/** A code's usage as last reported by the router (every 15 minutes). */
+export interface VoucherUsage {
+  /** Logged in on the Wi-Fi at the last report. */
+  online: boolean;
+  bytesUsed: number;
+  /** Null = unlimited data. */
+  bytesLeft: number | null;
+  firstUsedAt: string | null;
+  /** When the router last reported. */
+  checkedAt: string;
 }
 
 export interface OrderStatusResponse {

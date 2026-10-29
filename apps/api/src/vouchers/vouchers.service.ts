@@ -1,5 +1,5 @@
 import type { AddVouchersResult, VoucherBatchView, VoucherStock } from '@yourwifi/shared';
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import { orders, plans, voucherBatches, vouchers } from '../db/schema';
 import type { Deps } from '../deps';
@@ -26,6 +26,7 @@ export class VoucherService {
   async assign(tx: Tx | Database, order: { id: string; planId: string }): Promise<string | null> {
     const [existing] = await tx.select({ code: vouchers.code }).from(vouchers).where(eq(vouchers.orderId, order.id));
     if (existing) return existing.code;
+    const now = this.deps.now();
     // SKIP LOCKED: payments for the same plan confirmed at the same moment each take a different voucher.
     const next = tx
       .select({ id: vouchers.id })
@@ -36,7 +37,12 @@ export class VoucherService {
       .for('update', { skipLocked: true });
     const [taken] = await tx
       .update(vouchers)
-      .set({ orderId: order.id, assignedAt: this.deps.now() })
+      .set({
+        orderId: order.id,
+        assignedAt: now,
+        // Valid for the plan's duration from now, whether it's used or not.
+        expiresAt: sql`${now}::timestamptz + (select ${plans.durationMinutes} from ${plans} where ${plans.id} = ${order.planId}) * interval '1 minute'`,
+      })
       .where(and(inArray(vouchers.id, next), isNull(vouchers.orderId)))
       .returning({ code: vouchers.code });
     return taken?.code ?? null;

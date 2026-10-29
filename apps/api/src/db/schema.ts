@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   index,
   integer,
@@ -112,7 +113,19 @@ export const vouchers = pgTable(
     // Set once, when the voucher is given to a paid order. Unique: an order gets exactly one voucher.
     orderId: uuid('order_id').unique().references(() => orders.id),
     assignedAt: timestamp('assigned_at', { withTimezone: true }),
+    // The plan's duration from assignment (the purchase), fixed then so later plan edits don't move it.
+    // The router removes the code once it expires and `removedAt` records that it confirmed.
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    removedAt: timestamp('removed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // Usage as reported by the router (POST /api/router/usage). The router's hotspot-user counters
+    // cover finished sessions; a session in progress is reported separately with `onlineAt`.
+    usedSeconds: integer('used_seconds').notNull().default(0),
+    usedBytes: bigint('used_bytes', { mode: 'number' }).notNull().default(0),
+    sessionSeconds: integer('session_seconds').notNull().default(0),
+    sessionBytes: bigint('session_bytes', { mode: 'number' }).notNull().default(0),
+    onlineAt: timestamp('online_at', { withTimezone: true }),
+    firstUsedAt: timestamp('first_used_at', { withTimezone: true }),
   },
   (t) => [index('vouchers_plan_unused_idx').on(t.planId, t.orderId)],
 );
@@ -139,4 +152,10 @@ export const rateLimits = pgTable('rate_limits', {
   key: text('key').primaryKey(),
   hits: integer('hits').notNull(),
   resetAt: timestamp('reset_at', { withTimezone: true }).notNull(),
+});
+
+// When the router last sent a usage report, so customers can see how fresh their numbers are.
+export const routerReports = pgTable('router_reports', {
+  kind: text('kind').primaryKey(),
+  at: timestamp('at', { withTimezone: true }).notNull(),
 });
