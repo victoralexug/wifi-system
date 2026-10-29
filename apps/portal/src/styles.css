@@ -3,7 +3,7 @@
  *  1. Hierarchy: one filled primary pill per screen, grey secondary pills
  *  2. Limited colours: primary indigo, secondary lavender, neutral grey (+ red only for errors)
  *  3. Consistent type: Inter, four sizes (display / title / body / small), two weights
- *  4. Scanning: the price and the selected plan carry the emphasis
+ *  4. Scanning: the amount, the price and the selected plan carry the emphasis
  *  5. Whitespace: an 8px spacing scale, generous gaps
  */
 /* Basic Latin subset only (48 KB). The ₦ glyph lives in the 85 KB latin-ext file, so it falls
@@ -115,17 +115,24 @@ main { flex: 1; padding-bottom: var(--s4); }
 
 /* ---------- plans: the one thing to scan ---------- */
 .plans { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--s2); }
-.plans legend { font-size: var(--fs-small); line-height: 1.4; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: var(--s2); padding: 0; }
-.plan { position: relative; display: flex; align-items: center; gap: var(--s3); padding: 20px var(--s4); border: 2px solid transparent; border-radius: var(--radius); background: var(--surface); cursor: pointer; transition: border-color 0.15s, background 0.15s; }
-.plan input { position: absolute; opacity: 0; pointer-events: none; }
-.plan::before { content: ''; flex: none; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--neutral-press); transition: border 0.15s; }
-.plan.selected { border-color: var(--primary); background: var(--primary-tint); }
-.plan.selected::before { border: 6px solid var(--primary); }
-.plan:has(input:focus-visible) { outline: 3px solid var(--secondary); outline-offset: 2px; }
-.plan-main { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.plan-name { font-weight: 600; }
-.plan-desc { color: var(--muted); font-size: var(--fs-small); }
-.plan-price { font-size: var(--fs-title); font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.plan-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
+/* An odd plan out gets the full row, so the grid never ends on a gap. */
+.plan-grid > .tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.tile { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: var(--s1); min-height: 148px; padding: var(--s3); border: 2px solid transparent; border-radius: var(--radius); background: var(--surface); cursor: pointer; transition: border-color 0.15s, background 0.15s, transform 0.05s; }
+.tile:active { transform: scale(0.98); }
+.tile input { position: absolute; opacity: 0; pointer-events: none; }
+.tile::after { content: ''; position: absolute; top: var(--s3); right: var(--s3); width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--neutral-press); transition: border 0.15s; }
+.tile.selected { border-color: var(--primary); background: var(--primary-tint); }
+.tile.selected::after { border: 6px solid var(--primary); }
+.tile:has(input:focus-visible) { outline: 3px solid var(--secondary); outline-offset: 2px; }
+.tile-tag { font-size: var(--fs-small); font-weight: 600; padding: 2px var(--s2); border-radius: var(--pill); background: var(--primary); color: var(--on-primary); }
+.tile-amount { font-size: var(--fs-display); line-height: 1.1; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.tile-amount span { font-size: var(--fs-body); margin-left: var(--s1); letter-spacing: 0; }
+.tile.selected .tile-amount { color: var(--primary); }
+.tile-desc { color: var(--muted); font-size: var(--fs-small); }
+.tile-price { margin-top: auto; padding-top: var(--s2); font-size: var(--fs-title); font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.tile.sold-out { opacity: 0.55; cursor: default; }
+.tile.sold-out:active { transform: none; }
 
 /* ---------- forms ---------- */
 .field { display: flex; flex-direction: column; gap: var(--s2); text-align: left; }
@@ -179,7 +186,8 @@ input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px
 @media (prefers-reduced-motion: reduce) { .spinner, .skeleton { animation: none; } }
 
 @media (max-width: 340px) {
-  .plan { padding: var(--s3); gap: 12px; }
+  .tile { padding: 12px; }
+  .tile::after { top: 12px; right: 12px; }
   .card { padding: var(--s4) var(--s3); }
   h1 { font-size: 26px; }
 }
@@ -189,7 +197,6 @@ input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px
 .voucher-label { font-size: var(--fs-small); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .voucher-code { font: 600 32px/1.2 ui-monospace, 'SF Mono', Menlo, monospace; letter-spacing: 0.08em; color: var(--primary); background: none; border: 0; cursor: pointer; padding: var(--s1); word-break: break-all; }
 .voucher-hint { font-size: var(--fs-small); color: var(--muted); }
-.plan.sold-out { opacity: 0.55; cursor: default; }
 
 /* ---------- segmented control (plan type, sign in / create account) ---------- */
 .segmented { display: flex; padding: 4px; gap: 4px; border-radius: var(--pill); background: var(--neutral); margin-bottom: var(--s3); }

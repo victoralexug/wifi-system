@@ -35,6 +35,7 @@ export function PlansPage() {
   const passes = plans?.filter((p) => p.dataCapMb === null) ?? [];
   const shown = group === 'bundles' ? bundles : passes;
   const selected = plans?.find((p) => p.id === planId && !p.soldOut);
+  const best = bestValue(shown);
 
   const switchGroup = (g: Group) => {
     setGroup(g);
@@ -72,13 +73,13 @@ export function PlansPage() {
     <>
       <section className="hero">
         <h1>Fast internet, right where you are.</h1>
-        <p>Choose a data bundle or a time pass, then pay with card, transfer or USSD.</p>
+        <p>Choose your preferred data bundle and pay.</p>
       </section>
 
       {customer && (
         <a className="resume" href="/account">
           <span>Signed in as {customer.name ?? customer.phone}</span>
-          <strong>My purchases →</strong>
+          <strong>My plans →</strong>
         </a>
       )}
 
@@ -94,8 +95,7 @@ export function PlansPage() {
           </div>
         )}
 
-        <fieldset className="plans" disabled={submitting}>
-          <legend>{group === 'bundles' ? 'Ends when data or time runs out' : 'Unlimited data until time runs out'}</legend>
+        <fieldset className="plans" disabled={submitting} aria-label={group === 'bundles' ? 'Data bundles' : 'Unlimited time'}>
           {loadError && (
             <div className="alert">
               {loadError}{' '}
@@ -106,25 +106,23 @@ export function PlansPage() {
           )}
           {!plans && !loadError && <div className="skeleton" aria-label="Loading plans" />}
           {plans?.length === 0 && <p className="muted">No plans are available right now.</p>}
-          {shown.map((p) => (
-            <label key={p.id} className={`plan ${p.id === planId ? 'selected' : ''} ${p.soldOut ? 'sold-out' : ''}`}>
-              <input
-                type="radio"
-                name="plan"
-                value={p.id}
-                checked={p.id === planId}
-                disabled={p.soldOut}
-                onChange={() => setPlanId(p.id)}
-              />
-              <span className="plan-main">
-                <span className="plan-name">{p.dataCapMb !== null ? formatDataMb(p.dataCapMb) : formatDuration(p.durationMinutes)}</span>
-                <span className="plan-desc">
-                  {p.dataCapMb !== null ? `Valid ${formatDuration(p.durationMinutes)}` : 'Unlimited data'}
-                </span>
-              </span>
-              <span className="plan-price">{p.soldOut ? <span className="badge">Sold out</span> : formatNaira(p.priceKobo)}</span>
-            </label>
-          ))}
+          <div className="plan-grid">
+            {shown.map((p) => {
+              const [amount, unit] = (p.dataCapMb !== null ? formatDataMb(p.dataCapMb) : formatDuration(p.durationMinutes)).split(' ');
+              return (
+                <label key={p.id} className={`tile ${p.id === planId ? 'selected' : ''} ${p.soldOut ? 'sold-out' : ''}`}>
+                  <input type="radio" name="plan" value={p.id} checked={p.id === planId} disabled={p.soldOut} onChange={() => setPlanId(p.id)} />
+                  {p.id === best && <span className="tile-tag">Best value</span>}
+                  <span className="tile-amount">
+                    {amount}
+                    <span>{unit}</span>
+                  </span>
+                  <span className="tile-desc">{p.dataCapMb !== null ? formatDuration(p.durationMinutes) : 'Unlimited data'}</span>
+                  <span className="tile-price">{p.soldOut ? <span className="badge">Sold out</span> : formatNaira(p.priceKobo)}</span>
+                </label>
+              );
+            })}
+          </div>
         </fieldset>
 
         {error && <div className="alert">{error}</div>}
@@ -149,4 +147,12 @@ export function PlansPage() {
       </form>
     </>
   );
+}
+
+/** The cheapest per GB (or per day of unlimited), marked only when there's a real choice. */
+function bestValue(plans: PublicPlan[]): string | undefined {
+  const open = plans.filter((p) => !p.soldOut);
+  if (open.length < 3) return undefined;
+  const unitPrice = (p: PublicPlan) => p.priceKobo / (p.dataCapMb ?? p.durationMinutes);
+  return open.reduce((a, b) => (unitPrice(b) < unitPrice(a) ? b : a)).id;
 }

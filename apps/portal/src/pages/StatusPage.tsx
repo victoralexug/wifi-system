@@ -100,7 +100,7 @@ export function StatusPage() {
             </>
           ) : (
             <p className="note">
-              Your voucher code is being prepared. It will appear here and under My purchases shortly.
+              Your voucher code is being prepared. It will appear here and under My plans shortly.
               {SUPPORT_PHONE && ` If it hasn't appeared within a few minutes, call ${SUPPORT_PHONE}.`}
             </p>
           )}
